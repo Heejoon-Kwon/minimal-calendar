@@ -25,13 +25,4 @@ test('터치 길게 눌러 Todo를 배치하고 일정의 카테고리 열기', 
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await page.getByRole('button', { name: '공부', exact: true }).tap()
   await expect(event).toHaveCSS('border-left-color', 'rgb(66, 110, 210)')
-
-  await page.getByRole('button', { name: '기한 추가' }).tap()
-  const start = await center(cell(page, '2026-08-19'))
-  const end = await center(cell(page, '2026-08-21'))
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] })
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [end] })
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-  await expect(page.getByLabel('시작일')).toHaveValue('2026-08-19')
-  await expect(page.getByLabel('종료일')).toHaveValue('2026-08-21')
 })

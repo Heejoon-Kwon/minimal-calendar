@@ -1,15 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { demoRecords } from '../src/data/demo'
-import { entity } from '../src/data/model'
 import { cell, center, emptyRecords, item, openApp, restore } from './browser-fixtures'
 
-test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, info) => {
+test('전체 화면 월간 달력, 스타일과 할 일 배치', async ({ page }, info) => {
   test.skip(info.project.name === 'chromium-touch')
   await openApp(page)
   const viewport = page.viewportSize()!
   const calendar = page.getByRole('region', { name: '월간 달력' })
   const today = cell(page, '2026-08-18')
-  const deadlineCount = page.getByRole('button', { name: /^숨은 기한 \d+개$/ })
   const capture = async (name: string) => {
     const frame = await calendar.boundingBox()
     expect(frame!.y + frame!.height).toBeLessThan(viewport.height)
@@ -20,7 +18,7 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
   }
 
   const holiday = cell(page, '2026-08-17')
-  await expect(holiday.getByRole('button', { name: /대체공휴일\(광복절\)/ })).toHaveCSS('color', 'rgb(173, 48, 58)')
+  await expect(holiday.getByRole('button', { name: /대체공휴일\(광복절\)/ })).toHaveCSS('color', 'rgb(177, 36, 53)')
   await expect(holiday).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(today).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await capture('04-six-weeks')
@@ -39,7 +37,6 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
   moderate.items = moderate.items.filter(value => value.date !== '2026-08-18')
   moderate.items.push(...titles.slice(0, 4).map((title, index) => item(title, '2026-08-18', index)))
   moderate.items.push(...['서류 정리', '운동', '팀 회의', '회고'].map((title, index) => item(title, '2026-08-30', index)))
-  moderate.deadlines = moderate.deadlines.filter(value => value.start_date !== '2026-08-24')
   await restore(page, moderate)
   await expect(cell(page, '2026-08-30').getByRole('button')).toHaveCount(5)
   await capture('02-four-events')
@@ -52,7 +49,7 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
     const more = today.getByRole('button', { name: /^\+\d+개$/ })
     const top = (await today.boundingBox())!.y
     expect((await more.boundingBox())!.y - top).toBeLessThan(18)
-    expect(await today.locator('[data-event]').count()).toBeGreaterThanOrEqual(4)
+    expect(await today.locator('[data-event]').count()).toBeGreaterThanOrEqual(5)
   }
   await capture('03-overflow')
   await today.getByRole('button', { name: /^\+\d+개$/ }).click()
@@ -61,25 +58,18 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
   await capture('09-day-panel')
   await dayPanel.getByRole('button', { name: '닫기' }).click()
 
-  moderate.deadlines = Array.from({ length: 6 }, (_, index) => ({
-    ...entity(), title: `접수 기간 ${index + 1}`, start_date: '2026-08-17', end_date: '2026-08-24',
-    category_id: moderate.categories[index].id,
-  }))
-  await restore(page, moderate)
-  await expect(deadlineCount.first()).toBeVisible()
-  const bar = await page.getByRole('button', { name: /^기한: 접수 기간/ }).first().boundingBox()
-  expect(bar!.width).toBeGreaterThan((await today.boundingBox())!.width * 6)
-  await expect(today.getByRole('button', { name: /^\+\d+개$/ })).toBeVisible()
-  await capture('05-deadline-overlap')
-
-  await page.getByRole('button', { name: '설정', exact: true }).click()
-  await page.getByLabel('테마').selectOption('dark')
-  await page.getByRole('button', { name: '닫기' }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await capture('06-dark')
-  await page.getByRole('button', { name: '설정', exact: true }).click()
-  await page.getByLabel('테마').selectOption('light')
-  await page.getByRole('button', { name: '닫기' }).click()
+  for (const [name, style] of [['다크', 'dark'], ['아이보리', 'ivory'], ['자주', 'plum'], ['차콜', 'charcoal'], ['라이트', 'light']]) {
+    await page.getByRole('button', { name: '설정', exact: true }).click()
+    await page.getByRole('button', { name, exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', style)
+    if (style === 'ivory') {
+      const dialog = page.getByRole('dialog', { name: '설정' })
+      expect(await dialog.evaluate(element => element.scrollWidth)).toBe(await dialog.evaluate(element => element.clientWidth))
+      await capture('settings-ivory')
+    }
+    await page.getByRole('button', { name: '닫기' }).click()
+    await capture(`style-${style}`)
+  }
 
   await page.getByRole('button', { name: '할 일 목록' }).click()
   const todo = page.getByRole('complementary', { name: '할 일' })

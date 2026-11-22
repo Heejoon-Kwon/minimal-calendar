@@ -1,5 +1,5 @@
 import { compareTimes, dateKey, fromKey } from '../calendar'
-import { collectionNames, type Change, type Records } from './model'
+import { calendarFontSizes, collectionNames, customStyles, todoFontSizes, type Change, type Records } from './model'
 import { recordsToChanges } from './repository'
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -26,28 +26,33 @@ export function decodeBackup(raw: string): Records {
       || !instant(row.created_at) || !instant(row.updated_at))
       || new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('백업 레코드가 올바르지 않습니다.')
   }
-  const { categories, settings, items, deadlines } = records as Records
+  const { categories, settings, items } = records as Records
   const ids = new Set(categories.map(category => category.id))
   if (!categories.length || categories.some(category => !nonempty(category.name) || !/^#[0-9a-f]{6}$/i.test(category.color))
     || settings.length !== 1 || settings[0].id !== 'preferences' || !['system', 'light', 'dark'].includes(settings[0].theme)
     || ![0, 1].includes(settings[0].week_start) || !ids.has(settings[0].default_category_id)
+    || (settings[0].calendar_style !== undefined && !customStyles.includes(settings[0].calendar_style))
+    || (settings[0].calendar_font_size !== undefined && !calendarFontSizes.includes(settings[0].calendar_font_size))
+    || (settings[0].todo_font_size !== undefined && !todoFontSizes.includes(settings[0].todo_font_size))
+    || (settings[0].category_order !== undefined && (!Array.isArray(settings[0].category_order)
+      || !settings[0].category_order.every(nonempty)
+      || new Set(settings[0].category_order).size !== settings[0].category_order.length))
     || items.some(item => !nonempty(item.title) || !ids.has(item.category_id) || typeof item.completed !== 'boolean'
       || !Number.isSafeInteger(item.sort_order) || !(item.date === null || date(item.date))
       || (item.start_time !== null && !time(item.start_time))
-      || (item.end_time !== null && (!time(item.end_time) || !item.start_time || compareTimes(item.end_time, item.start_time) < 0)))
-    || deadlines.some(deadline => !nonempty(deadline.title) || !ids.has(deadline.category_id)
-      || !date(deadline.start_date) || !date(deadline.end_date) || deadline.end_date < deadline.start_date)) {
+      || (item.end_time !== null && (!time(item.end_time) || !item.start_time || compareTimes(item.end_time, item.start_time) < 0)))) {
     throw new Error('백업의 날짜, 카테고리 또는 설정이 올바르지 않습니다.')
   }
   // Project known collections through a JSON whitelist before they can reach the transport.
   return {
     categories: categories.map(({ id, created_at, updated_at, name, color }) => ({ id, created_at, updated_at, name, color })),
-    settings: settings.map(({ id, created_at, updated_at, theme, week_start, default_category_id }) =>
-      ({ id, created_at, updated_at, theme, week_start, default_category_id })),
+    settings: settings.map(({ id, created_at, updated_at, theme, week_start, default_category_id,
+      calendar_style, calendar_font_size, todo_font_size, category_order }) => ({
+      id, created_at, updated_at, theme, week_start, default_category_id,
+      calendar_style, calendar_font_size, todo_font_size, category_order: category_order?.filter(id => ids.has(id)),
+    })),
     items: items.map(({ id, created_at, updated_at, title, date, start_time, end_time, category_id, completed, sort_order }) =>
       ({ id, created_at, updated_at, title, date, start_time, end_time, category_id, completed, sort_order })),
-    deadlines: deadlines.map(({ id, created_at, updated_at, title, start_date, end_date, category_id }) =>
-      ({ id, created_at, updated_at, title, start_date, end_date, category_id })),
   }
 }
 

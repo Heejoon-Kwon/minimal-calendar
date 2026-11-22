@@ -42,8 +42,9 @@ it('마이그레이션, 인증, 사용자별 RLS, RPC 멱등성과 기한 제약
   await send([deleted])
   await send(changes)
   expect((await db.query("select value from public.categories where id = 'category-2'")).rows).toEqual([{ value: null }])
-  await expect(send([{ collection: 'deadlines', id: 'd', stamp, operation: crypto.randomUUID(),
-    value: { id: 'd', created_at: stamp, updated_at: stamp, title: '기한', category_id: 'category-1', start_date: '2026-08-02', end_date: '2026-08-01' } }]))
+  await expect(send([{ collection: 'items', id: 'invalid', stamp, operation: crypto.randomUUID(),
+    value: { id: 'invalid', created_at: stamp, updated_at: stamp, title: '시간 확인', date: null, category_id: 'category-1',
+      start_time: '14:00', end_time: '12:00', completed: false, sort_order: 0 } }]))
     .rejects.toThrow(/check constraint/)
   await db.exec(`set request.jwt.claim.sub = '${bob}'`)
   expect((await db.query('select * from public.categories')).rows).toEqual([])

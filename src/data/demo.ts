@@ -22,12 +22,5 @@ export function demoRecords(now = new Date()): Records {
     start_time: start ?? null, end_time: null, category_id: records.categories[category].id,
     completed: false, sort_order: index,
   }))
-  records.deadlines = ([
-    ['공모전 접수', 3, 9, 2], ['인턴 지원', 11, 20, 3], ['스터디 모집', 16, 19, 1],
-    ['전시 사전 예약', 24, 31, 5],
-  ] as const).map(([title, start, end, category], index) => ({
-    ...entity(`demo-deadline-${index}`), title, start_date: key(start), end_date: key(end),
-    category_id: records.categories[category].id,
-  }))
   return records
 }

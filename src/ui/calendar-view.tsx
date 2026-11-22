@@ -1,8 +1,8 @@
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import { useDroppable } from '@dnd-kit/core'
-import { dateKey, deadlineLaneHeight, deadlineSegments, deadlineSpace, eventSlots, monthWeeks, readableDate, sortEvents, weekCapacity } from '../calendar'
+import { dateKey, eventSlots, monthWeeks, readableDate, sortEvents } from '../calendar'
 import { koreanHoliday } from '../data/holidays'
-import type { Category, DateKey, Deadline, Item, WeekStart } from '../data/model'
+import type { Category, DateKey, Item, WeekStart } from '../data/model'
 import styles from './ui.module.css'
 
 export type CategoryLookup = (id: string) => Category
@@ -16,19 +16,14 @@ interface CalendarProps {
   today: DateKey
   weekStart: WeekStart
   items: Item[]
-  deadlines: Deadline[]
+  fontSize?: number
   category: CategoryLookup
   openDate: (date: DateKey) => void
   openItem: (item: Item) => void
   quickCategory: (anchor: CategoryAnchor) => void
-  openDeadlines: (deadlines: Deadline[]) => void
   landing?: { itemId: string; date: DateKey; color: string }
   moving: boolean
   picking: boolean
-  rangePicking: boolean
-  range: { start: DateKey; end: DateKey } | null
-  hoverDate: (date: DateKey) => void
-  selectDate: (date: DateKey) => void
 }
 
 function EventEntry({ item, category, lines, landed, open, quick }: {
@@ -79,40 +74,29 @@ function EventEntry({ item, category, lines, landed, open, quick }: {
   </button>
 }
 
-function DayCell({ day, entries, slots, compact, wraps, overflow, props }: {
-  day: Date; entries: Item[]; slots: number; compact: boolean; wraps: (title: string) => boolean
-  overflow?: Deadline[]; props: CalendarProps
+function DayCell({ day, entries, slots, wraps, props }: {
+  day: Date; entries: Item[]; slots: number; wraps: (title: string) => boolean; props: CalendarProps
 }) {
   const key = dateKey(day)
-  const today = key === props.today
   const holiday = koreanHoliday(day)
   const landing = props.landing?.date === key ? props.landing : undefined
-  const selected = props.range && key >= props.range.start && key <= props.range.end
   const { setNodeRef, isOver } = useDroppable({ id: key })
-  const overflowInHeader = compact && !overflow
-  const titleCount = entries.length > slots && !overflowInHeader ? slots - 1 : slots
-  const visibleEvents = entries.slice(0, titleCount)
+  const visibleEvents = entries.slice(0, slots)
   const hidden = entries.length - visibleEvents.length
-  let spareLines = slots - visibleEvents.length - Number(hidden > 0 && !overflowInHeader)
+  let spareLines = slots - visibleEvents.length
   const inactive = props.moving || props.picking
-  const open = () => props.picking ? props.selectDate(key) : props.openDate(key)
-
-  const more = hidden > 0 && <button className={overflowInHeader ? styles.headerOverflow : styles.eventOverflow}
-    aria-label={`+${hidden}개`} onClick={() => props.openDate(key)}>+{hidden}{!overflowInHeader && '개'}</button>
+  const open = () => props.openDate(key)
 
   return <div ref={setNodeRef} className={styles.day} data-date={key} style={landing ? tint(landing.color) : undefined}
-    data-adjacent={day.getMonth() !== props.month.getMonth()}
+    data-adjacent={day.getMonth() !== props.month.getMonth()} data-landed={Boolean(landing)}
     data-holiday={Boolean(holiday || day.getDay() === 0)} data-over={props.moving && isOver}
-    data-selected={Boolean(selected)} data-landed={Boolean(landing)}
-    onPointerEnter={() => { if (props.picking) props.hoverDate(key) }}
-    onClick={event => { if (event.target === event.currentTarget) open() }}>
+    onClick={event => { if (!props.moving && event.target === event.currentTarget) open() }}>
     <div className={styles.dayHeader}>
       <button className={styles.dayButton} aria-label={[readableDate(key), holiday].filter(Boolean).join(', ')}
-        title={holiday} aria-current={today ? 'date' : undefined}
+        title={holiday} aria-current={key === props.today ? 'date' : undefined}
         disabled={props.moving} onClick={open}>{day.getDate()}</button>
-      {overflowInHeader && !inactive && more}
-      {overflow && !inactive && <button className={styles.deadlineOverflow} aria-label={`숨은 기한 ${overflow.length}개`}
-        onClick={() => props.openDeadlines(overflow)}>+{overflow.length}</button>}
+      {hidden > 0 && <button className={styles.headerOverflow} disabled={inactive}
+        aria-label={`+${hidden}개`} onClick={open}>+{hidden}</button>}
     </div>
     <div className={styles.events} aria-hidden={inactive} inert={inactive}>
       {visibleEvents.map(item => {
@@ -121,16 +105,14 @@ function DayCell({ day, entries, slots, compact, wraps, overflow, props }: {
         return <EventEntry key={item.id} item={item} lines={lines} landed={item.id === landing?.itemId}
           category={props.category(item.category_id)} open={() => props.openItem(item)} quick={props.quickCategory} />
       })}
-      {!overflowInHeader && more}
     </div>
   </div>
 }
 
 export function CalendarView(props: CalendarProps) {
-  const [metrics, setMetrics] = useState({ height: 0, width: 0, event: 19, header: 27, compact: false })
+  const [metrics, setMetrics] = useState({ height: 0, width: 0, event: 19, header: 25, compact: false })
   const textMeasure = useRef<CanvasRenderingContext2D | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
-  const gesture = useRef<{ date: DateKey; x: number; y: number; pointer: number } | null>(null)
   const weeks = monthWeeks(props.month, props.weekStart)
   const byDay = new Map<DateKey, Item[]>()
   for (const item of props.items) {
@@ -139,20 +121,20 @@ export function CalendarView(props: CalendarProps) {
     entries.push(item)
     byDay.set(item.date, entries)
   }
+  const { fontSize } = props
   useLayoutEffect(() => {
     const grid = gridRef.current
     if (!grid) return
-    textMeasure.current = document.createElement('canvas').getContext('2d')
+    textMeasure.current ??= document.createElement('canvas').getContext('2d')
     const measure = () => {
       const css = getComputedStyle(grid)
-      if (textMeasure.current) {
-        textMeasure.current.font = `600 ${css.getPropertyValue('--event-font').trim()} ${css.fontFamily}`
-      }
+      const font = parseFloat(css.getPropertyValue('--event-font'))
+      if (textMeasure.current) textMeasure.current.font = `650 ${font}px ${css.fontFamily}`
       setMetrics({
         height: grid.clientHeight,
         width: grid.clientWidth,
         compact: css.getPropertyValue('--compact').trim() === '1',
-        event: parseFloat(css.getPropertyValue('--event-height')),
+        event: font + parseFloat(css.getPropertyValue('--event-leading')),
         header: parseFloat(css.getPropertyValue('--date-height')),
       })
     }
@@ -160,66 +142,24 @@ export function CalendarView(props: CalendarProps) {
     observer.observe(grid)
     measure()
     return () => observer.disconnect()
-  }, [])
-  const dayAt = useCallback((x: number, y: number) =>
-    document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-date]')?.dataset.date, [])
+  }, [fontSize])
 
   const measureTitle = textMeasure.current
   const wraps = (title: string) => metrics.compact && !!measureTitle
-    && measureTitle.measureText(title).width > metrics.width / 7 - 6
+    && measureTitle.measureText(title).width > metrics.width / 7 - 5
+  const slots = eventSlots(metrics.height / weeks.length, metrics.header, metrics.event)
 
-  const height = metrics.height / weeks.length
-  const capacity = weekCapacity(height, metrics.event)
-  return <section className={styles.calendar} style={{ '--line-step': `${deadlineLaneHeight}px` } as CSSProperties} aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}>
+  return <section className={styles.calendar} style={fontSize ? { '--event-font': `${fontSize}px` } as CSSProperties : undefined}
+    aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}>
     <div className={styles.weekdays}>
       {Array.from({ length: 7 }, (_, index) => (index + props.weekStart) % 7).map(day =>
         <div key={day} data-sunday={day === 0}>{labels[day]}<span>요일</span></div>)}
     </div>
-    <div ref={gridRef} className={styles.grid} data-weeks={weeks.length} style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}
-      onPointerDown={event => {
-        if (!props.rangePicking || event.button !== 0) return
-        const date = dayAt(event.clientX, event.clientY)
-        if (!date) return
-        gesture.current = { date, x: event.clientX, y: event.clientY, pointer: event.pointerId }
-      }}
-      onPointerMove={event => {
-        if (!props.rangePicking) return
-        const drag = gesture.current
-        if (drag && drag.pointer === event.pointerId && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 9) {
-          if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.setPointerCapture(event.pointerId)
-            if (!props.range) props.selectDate(drag.date)
-          }
-        }
-        const date = dayAt(event.clientX, event.clientY)
-        if (date) props.hoverDate(date)
-      }}
-      onPointerUp={event => {
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          const date = dayAt(event.clientX, event.clientY)
-          if (date) props.selectDate(date)
-        }
-        gesture.current = null
-      }}
-      onPointerCancel={() => { gesture.current = null }}>
-      {weeks.map(week => {
-        const dates = week.map(dateKey)
-        const segments = deadlineSegments(dates, props.deadlines)
-        const visible = segments.filter(segment => segment.lane < capacity.maxLanes)
-        const overflow = segments.filter(segment => segment.lane >= capacity.maxLanes).map(segment => segment.deadline)
-        const lanes = visible.reduce((count, segment) => Math.max(count, segment.lane + 1), 0)
-        const slots = eventSlots(height, metrics.header, lanes, capacity.eventHeight)
-        return <div className={styles.week} key={dates[0]} style={{ '--line-space': `${deadlineSpace(lanes)}px` } as CSSProperties}>
-          {week.map((day, index) => <DayCell key={dates[index]} day={day} entries={sortEvents(byDay.get(dates[index]) ?? [])}
-            slots={slots} compact={metrics.compact} wraps={wraps} overflow={index === 6 && overflow.length ? overflow : undefined} props={props} />)}
-          <div className={styles.ranges} inert={props.picking || props.moving}>
-            {visible.map(({ deadline, first, last, lane, starts, ends }) =>
-              <button key={deadline.id} className={styles.range} data-starts={starts} data-ends={ends}
-                style={{ ...tint(props.category(deadline.category_id).color), gridColumn: `${first + 1} / ${last + 2}`, gridRow: lane + 1 }}
-                aria-label={`기한: ${deadline.title}`} title={deadline.title} onClick={() => props.openDeadlines([deadline])} />)}
-          </div>
-        </div>
-      })}
+    <div ref={gridRef} className={styles.grid} data-weeks={weeks.length} style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}>
+      {weeks.map(week => <div className={styles.week} key={dateKey(week[0])}>
+        {week.map(day => <DayCell key={dateKey(day)} day={day} entries={sortEvents(byDay.get(dateKey(day)) ?? [])}
+          slots={slots} wraps={wraps} props={props} />)}
+      </div>)}
     </div>
   </section>
 }

@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent, type Modifier,
 } from '@dnd-kit/core'
-import { CalendarRange, Check, ChevronLeft, ChevronRight, ListTodo, Plus, Settings2, X } from 'lucide-react'
+import { CalendarRange, Check, ChevronLeft, ChevronRight, ListTodo, Plus, Settings2 } from 'lucide-react'
 import { dateKey, moveMonth, readableDate, sortEvents, sortTodos } from '../calendar'
 import { put, type Change, type DateKey, type Item } from '../data/model'
 import type { Repository, RepositoryState } from '../data/repository'
 import { CalendarView, tint, type CategoryAnchor } from './calendar-view'
 import { Dialog } from './dialog'
-import { DeadlineEditor, ItemEditor } from './editors'
+import { ItemEditor } from './editors'
 import { SettingsPanel } from './settings'
 import { DropCancel, TodoPanel } from './todos'
 import styles from './ui.module.css'
@@ -16,8 +16,6 @@ import styles from './ui.module.css'
 type Overlay =
   | { kind: 'date'; date: DateKey }
   | { kind: 'item'; date: DateKey | null; itemId?: string; back?: DateKey }
-  | { kind: 'deadlines'; ids: string[] }
-  | { kind: 'deadline'; start: DateKey; end: DateKey; deadlineId?: string }
   | { kind: 'settings' }
 
 class CalendarMouseSensor extends MouseSensor {
@@ -76,9 +74,6 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [dragging, setDragging] = useState<string>()
   const [clickMoving, setClickMoving] = useState<string>()
   const [landing, setLanding] = useState<{ itemId: string; date: DateKey; color: string }>()
-  const [picking, setPicking] = useState(false)
-  const [start, setStart] = useState<DateKey>()
-  const [end, setEnd] = useState<DateKey>()
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -88,7 +83,6 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     useSensor(CalendarTouchSensor, { activationConstraint: { delay: 420, tolerance: 10 } }),
   )
 
-  const cancelRange = useCallback(() => { setPicking(false); setStart(undefined); setEnd(undefined) }, [])
   function cancelMove() { setDragging(undefined); setClickMoving(undefined) }
 
   useEffect(() => {
@@ -144,10 +138,12 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }, [])
 
   useEffect(() => {
-    const theme = state?.records.settings[0]?.theme ?? 'system'
-    const dark = theme === 'dark' || (theme === 'system' && systemDark)
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#191a1d' : '#f8f9fb')
+    const settings = state?.records.settings[0]
+    const theme = settings?.theme ?? 'system'
+    const style = settings?.calendar_style ?? (theme === 'system' ? (systemDark ? 'dark' : 'light') : theme)
+    document.documentElement.dataset.theme = style
+    const chrome = getComputedStyle(document.documentElement).getPropertyValue('--chrome').trim()
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', chrome)
   }, [state?.records.settings, systemDark])
 
   useEffect(() => {
@@ -155,7 +151,6 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       if (event.key === 'Escape') {
         setAnchor(undefined)
         setClickMoving(undefined)
-        cancelRange()
       }
     }
     const outside = (event: PointerEvent) => {
@@ -175,7 +170,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       window.removeEventListener('mouseup', captureRelease, true)
       window.removeEventListener('touchend', captureRelease, true)
     }
-  }, [cancelRange])
+  }, [])
 
   useEffect(() => {
     if (!landing) return
@@ -203,7 +198,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }
 
   const { records, pending } = state
-  const { items, deadlines, categories } = records
+  const { items, categories } = records
   const settings = records.settings[0]
   const defaultCategory = categories.find(category => category.id === settings.default_category_id) ?? categories[0]
   const category = (id: string) => categories.find(value => value.id === id) ?? defaultCategory
@@ -229,12 +224,6 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     else cancelMove()
   }
 
-  function selectDate(date: DateKey) {
-    if (!start || date < start) { setStart(date); setEnd(date); return }
-    setOverlay({ kind: 'deadline', start, end: date })
-    cancelRange()
-  }
-
   function editItem(item: Item, back?: DateKey) {
     setOverlay({ kind: 'item', date: item.date, itemId: item.id, back })
   }
@@ -243,16 +232,11 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   if (overlay?.kind === 'date') {
     const { date } = overlay
     const events = sortEvents(items.filter(item => item.date === date))
-    const activeDeadlines = deadlines.filter(value => value.start_date <= date && value.end_date >= date)
     dialog = <Dialog key={date} title={readableDate(date)} close={() => setOverlay(undefined)}>
       <div className={styles.dayList}>
         {events.length === 0 && <p className={styles.empty}>등록된 일정이 없습니다.</p>}
         {events.map(item => <button key={item.id} className={styles.detailRow} style={tint(category(item.category_id).color)}
           onClick={() => editItem(item, date)}><span>{item.title}</span><span>{item.start_time?.slice(0, 5) ?? '하루 종일'}</span></button>)}
-        {activeDeadlines.map(value => <button key={value.id} className={styles.detailRow} style={tint(category(value.category_id).color)}
-          onClick={() => setOverlay({ kind: 'deadline', start: value.start_date, end: value.end_date, deadlineId: value.id })}>
-          <span>{value.title}</span><span>기한</span>
-        </button>)}
       </div>
       <button className={styles.primary} data-focus onClick={() => setOverlay({ kind: 'item', date, back: date })}><Plus size={16} /> 일정 추가</button>
     </Dialog>
@@ -271,31 +255,6 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     </Dialog>
   }
 
-  if (overlay?.kind === 'deadlines') {
-    dialog = <Dialog key="deadlines" title="기한" close={() => setOverlay(undefined)}>
-      <div className={styles.dayList}>
-        {deadlines.filter(value => overlay.ids.includes(value.id)).map(value =>
-          <button key={value.id} className={styles.detailRow} style={tint(category(value.category_id).color)}
-            onClick={() => setOverlay({ kind: 'deadline', start: value.start_date, end: value.end_date, deadlineId: value.id })}>
-            <span>{value.title}</span><span>{value.start_date} ~ {value.end_date}</span>
-          </button>)}
-      </div>
-    </Dialog>
-  }
-
-  if (overlay?.kind === 'deadline') {
-    const { deadlineId, start, end } = overlay
-    const close = () => setOverlay(undefined)
-    dialog = <Dialog key={deadlineId ?? 'new-deadline'} title={deadlineId ? '기한 편집' : '기한 추가'} close={close}>
-      <DeadlineEditor existing={deadlines.find(value => value.id === deadlineId)} initialStart={start} initialEnd={end}
-        categories={categories} defaultCategory={defaultCategory.id}
-        save={async deadline => { await apply([put('deadlines', deadline)]); close() }}
-        remove={() => {
-          if (deadlineId) void apply([{ collection: 'deadlines', id: deadlineId, value: null }]).then(close).catch(() => undefined)
-        }} />
-    </Dialog>
-  }
-
   if (overlay?.kind === 'settings') dialog = <Dialog key="settings" title="설정" close={() => setOverlay(undefined)}>
     <SettingsPanel records={records} settings={{ ...settings, default_category_id: defaultCategory.id }} apply={apply} logout={logout} />
   </Dialog>
@@ -309,18 +268,12 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       setAnchor(undefined)
     }} onDragEnd={drop} onDragCancel={cancelMove}
     accessibility={{ screenReaderInstructions: { draggable: '이동 핸들을 누르고 달력의 날짜를 선택하거나 원하는 날짜로 드래그하세요.' } }}>
-    <main className={styles.app}>
-      <header className={styles.topbar}>
+    <main className={styles.app} style={{ '--todo-font': `${settings.todo_font_size ?? 14}px` } as CSSProperties}>
+      <header className={styles.masthead}>
         <Brand />
-        <div className={styles.topActions}>
-          <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout}
-            data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'}>{syncLabel}</button>
-          <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })}><Settings2 size={18} /></button>
-        </div>
-      </header>
-      <div className={styles.toolbar}>
         <div className={styles.monthTitle}>
-          <h1 aria-live="polite">{month.getFullYear()}년 <strong>{month.getMonth() + 1}월</strong></h1>
+          <h1 aria-live="polite" aria-label={`${month.getFullYear()}년 ${month.getMonth() + 1}월`}><strong>{month.getMonth() + 1}월</strong> <span>{month.getFullYear()}년</span></h1>
+          {movingItem && <span className={styles.screenReader} role="status">달력에서 날짜를 선택하세요</span>}
         </div>
         <div className={styles.navigation}>
           <button className={styles.today} onClick={() => { setToday(dateKey(new Date())); setMonth(moveMonth(new Date(), 0)) }}>오늘</button>
@@ -329,36 +282,26 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
             <button className={styles.icon} aria-label="다음 달" onClick={() => setMonth(value => moveMonth(value, 1))}><ChevronRight size={17} /></button>
           </div>
         </div>
-      </div>
-      <CalendarView month={month} today={today} weekStart={settings.week_start} items={items} deadlines={deadlines}
+        <div className={styles.topActions}>
+          <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout}
+            data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'}>{syncLabel}</button>
+          <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })} disabled={Boolean(movingItem)}><Settings2 size={18} /></button>
+          <div className={styles.todoControl}>
+            {movingItem ? <DropCancel cancel={cancelMove} /> :
+              <button className={styles.todoFab} aria-expanded={todoOpen} onClick={() => setTodoOpen(value => !value)} aria-label="할 일 목록">
+                <ListTodo size={18} /><span>할 일</span>{todos.length > 0 && <small>{todos.length}</small>}
+              </button>}
+          </div>
+        </div>
+      </header>
+      <CalendarView month={month} today={today} weekStart={settings.week_start} items={items} fontSize={settings.calendar_font_size}
         category={category} openDate={date => {
           if (clickMoving && movingItem) schedule(movingItem, date)
           else setOverlay({ kind: 'date', date })
         }} openItem={editItem} quickCategory={setAnchor}
-        openDeadlines={values => setOverlay({ kind: 'deadlines', ids: values.map(value => value.id) })}
-        landing={landing} moving={Boolean(dragging)} picking={picking || Boolean(clickMoving)} rangePicking={picking}
-        range={start ? { start, end: end && end >= start ? end : start } : null}
-        hoverDate={date => { if (picking && start) setEnd(date) }}
-        selectDate={date => {
-          if (clickMoving && movingItem) schedule(movingItem, date)
-          else selectDate(date)
-        }} />
-      <footer className={styles.footer}>
-        {picking ? <div className={styles.modeHint} role="status">{start ? '종료일을 선택하세요' : '시작일을 선택하세요'}
-          <button className={styles.icon} aria-label="기한 선택 취소" onClick={cancelRange}><X size={17} /></button></div>
-          : movingItem ? <div className={styles.modeHint} role="status">달력에서 날짜를 선택하세요</div>
-            : landing ? <div className={`${styles.modeHint} ${styles.placementStatus}`} role="status">
-              <Check size={14} /> {readableDate(landing.date)}에 배치했어요
-            </div>
-            : <div className={styles.legend}><span className={styles.legendLine} />기한<span className={styles.legendEvent} />일정</div>}
-        {actionError && <span className={styles.error} role="alert">{actionError}</span>}
-        {movingItem ? <DropCancel cancel={cancelMove} /> : !picking && <div className={styles.floatingActions}>
-          <button className={styles.deadlineFab} onClick={() => { setTodoOpen(false); setPicking(true) }} aria-label="기한 추가" title="기한 추가"><CalendarRange size={18} /><span>기한</span></button>
-          <button className={styles.todoFab} aria-expanded={todoOpen} onClick={() => setTodoOpen(value => !value)} aria-label="할 일 목록">
-            <ListTodo size={19} /><span>할 일</span>{todos.length > 0 && <small>{todos.length}</small>}
-          </button>
-        </div>}
-      </footer>
+        landing={landing} moving={Boolean(dragging)} picking={Boolean(clickMoving)} />
+      {landing && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
+      {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
       {todoOpen && <TodoPanel items={todos} category={category} hidden={Boolean(dragging || clickMoving)}
         close={() => setTodoOpen(false)} add={() => setOverlay({ kind: 'item', date: null })}
         edit={item => editItem(item)} toggle={item => commit([put('items', { ...item, completed: !item.completed })])}

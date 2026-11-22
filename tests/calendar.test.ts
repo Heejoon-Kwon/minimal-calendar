@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { dateKey, deadlineSegments, eventSlots, fromKey, monthWeeks, moveMonth, sortEvents, weekCapacity } from '../src/calendar'
-import { entity, type Deadline, type Item } from '../src/data/model'
+import { dateKey, eventSlots, fromKey, monthWeeks, moveMonth, sortEvents } from '../src/calendar'
+import { entity, type Item } from '../src/data/model'
 
 describe('월 계산', () => {
   it.each([
@@ -32,28 +32,8 @@ describe('월 계산', () => {
   })
 })
 
-describe('주간 기한선', () => {
-  const deadline = (id: string, start_date: string, end_date: string): Deadline =>
-    ({ ...entity(id), title: id, start_date, end_date, category_id: 'category-1' })
-  const dates = monthWeeks(fromKey('2026-08-01'), 1).map(week => week.map(dateKey))
-
-  it('인접 월과 주 경계에서 이어지고 같은 주 안에서는 막대 하나를 사용한다', () => {
-    const range = deadline('a', '2026-07-25', '2026-08-04')
-    expect(deadlineSegments(dates[0], [range])).toMatchObject([{ first: 0, last: 6, starts: false, ends: false }])
-    expect(deadlineSegments(dates[1], [range])).toMatchObject([{ first: 0, last: 1, starts: false, ends: true }])
-    expect(deadlineSegments(dates[2], [range])).toEqual([])
-  })
-
-  it('겹치는 기간을 별개로 두고 서로 겹치지 않는 막대는 행을 재사용한다', () => {
-    const ranges = [deadline('a', '2026-08-03', '2026-08-05'),
-      deadline('b', '2026-08-05', '2026-08-06'), deadline('c', '2026-08-06', '2026-08-07')]
-    expect(deadlineSegments(dates[1], ranges).map(value => value.lane)).toEqual([0, 1, 0])
-  })
-
-  it('제한된 높이에서 행 수를 줄여 일반 일정 공간을 보존한다', () => {
-    expect(weekCapacity(84, 17).maxLanes).toBe(2)
-    expect(eventSlots(84, 25, 2, 17)).toBe(2)
-    expect(eventSlots(120, 25, 2, 17)).toBe(4)
-    expect(eventSlots(60, 19, 0, 15)).toBe(2)
-  })
+it('글자 크기에 따라 날짜 칸에 들어가는 줄 수를 계산한다', () => {
+  expect(eventSlots(94, 18, 12)).toBe(6)
+  expect(eventSlots(94, 18, 13)).toBe(5)
+  expect(eventSlots(94, 18, 16)).toBe(4)
 })

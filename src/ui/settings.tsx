@@ -1,12 +1,18 @@
 import { useRef, useState } from 'react'
-import { Download, Plus, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, Plus, Trash2, Upload } from 'lucide-react'
 import { decodeBackup, encodeBackup, replaceChanges } from '../data/backup'
-import { entity, put, type Category, type Change, type Records, type Settings, type Theme, type WeekStart } from '../data/model'
+import { calendarFontSizes, entity, put, todoFontSizes, type Appearance, type Category, type Change, type Records, type Settings, type WeekStart } from '../data/model'
 import { CategorySelect } from './editors'
 import styles from './ui.module.css'
 
-function CategoryRow({ category, save, remove, removable }: {
+const appearances: Array<[Appearance, string]> = [
+  ['system', '시스템'], ['light', '라이트'], ['dark', '다크'],
+  ['ivory', '아이보리'], ['plum', '자주'], ['charcoal', '차콜'],
+]
+
+function CategoryRow({ category, save, remove, removable, moveUp, moveDown }: {
   category: Category; save: (category: Category) => void; remove: () => void; removable: boolean
+  moveUp?: () => void; moveDown?: () => void
 }) {
   return <div className={styles.categoryRow}>
     <input type="color" aria-label={`${category.name} 색상`} value={category.color}
@@ -18,7 +24,9 @@ function CategoryRow({ category, save, remove, removable }: {
         event.currentTarget.value = name || category.name
         if (name && name !== category.name) save({ ...category, name })
       }} />
-    <button className={styles.icon} disabled={!removable} aria-label={`${category.name} 삭제`} onClick={remove}><Trash2 size={15} /></button>
+    <button className={styles.rowIcon} disabled={!moveUp} aria-label={`${category.name} 위로`} onClick={moveUp}><ArrowUp size={15} /></button>
+    <button className={styles.rowIcon} disabled={!moveDown} aria-label={`${category.name} 아래로`} onClick={moveDown}><ArrowDown size={15} /></button>
+    <button className={styles.rowIcon} disabled={!removable} aria-label={`${category.name} 삭제`} onClick={remove}><Trash2 size={15} /></button>
   </div>
 }
 
@@ -29,9 +37,9 @@ export function SettingsPanel({ records, settings, apply, logout }: {
   const [notice, setNotice] = useState('')
   const [backup, setBackup] = useState<Records>()
   const file = useRef<HTMLInputElement>(null)
-  const { categories, items, deadlines } = records
-  const sampleChanges = ([['items', items], ['deadlines', deadlines]] as const).flatMap(([collection, rows]) => rows
-    .filter(row => row.id.startsWith('demo-')).map(row => ({ collection, id: row.id, value: null } as Change)))
+  const { categories, items } = records
+  const sampleChanges = items.filter(row => row.id.startsWith('demo-'))
+    .map(({ id }): Change => ({ collection: 'items', id, value: null }))
 
   function save(changes: Change[]) {
     void apply(changes).catch(() => setNotice('설정을 저장하지 못했습니다.'))
@@ -43,25 +51,60 @@ export function SettingsPanel({ records, settings, apply, logout }: {
     if (!fallback) return
     save([
       ...items.filter(item => item.category_id === id).map(item => put('items', { ...item, category_id: fallback.id })),
-      ...deadlines.filter(deadline => deadline.category_id === id).map(deadline => put('deadlines', { ...deadline, category_id: fallback.id })),
-      ...(settings.default_category_id === id ? [put('settings', { ...settings, default_category_id: fallback.id })] : []),
+      ...(settings.default_category_id === id || settings.category_order?.includes(id)
+        ? [put('settings', { ...settings,
+          default_category_id: settings.default_category_id === id ? fallback.id : settings.default_category_id,
+          category_order: settings.category_order?.filter(categoryId => categoryId !== id),
+        })] : []),
       { collection: 'categories', id, value: null },
     ])
   }
 
+  function reorderCategory(from: number, to: number) {
+    const category_order = categories.map(category => category.id)
+    const [id] = category_order.splice(from, 1)
+    category_order.splice(to, 0, id)
+    save([put('settings', { ...settings, category_order })])
+  }
+
+  function setAppearance(value: Appearance) {
+    const next: Settings = value === 'system' || value === 'light' || value === 'dark'
+      ? { ...settings, theme: value, calendar_style: undefined }
+      : { ...settings, theme: value === 'charcoal' ? 'dark' : 'light', calendar_style: value }
+    save([put('settings', next)])
+  }
+
   return <div className={styles.settings}>
+    <div className={styles.appearance}>
+      <h3 id="appearance-title">캘린더 스타일</h3>
+      <div className={styles.appearanceOptions} role="group" aria-labelledby="appearance-title">
+        {appearances.map(([value, label]) => <button key={value} className={styles.appearanceOption}
+          data-palette={value} aria-pressed={(settings.calendar_style ?? settings.theme) === value} onClick={() => setAppearance(value)}>
+          <span aria-hidden="true" /><strong>{label}</strong>
+        </button>)}
+      </div>
+    </div>
     <div className={styles.fieldRow}>
-      <label>테마<select value={settings.theme} onChange={event => save([put('settings', { ...settings, theme: event.target.value as Theme })])}>
-        <option value="system">시스템</option><option value="light">라이트</option><option value="dark">다크</option>
+      <label>달력 일정 글자 크기<select value={settings.calendar_font_size ?? ''}
+        onChange={event => save([put('settings', { ...settings,
+          calendar_font_size: (Number(event.target.value) || undefined) as Settings['calendar_font_size'],
+        })])}>
+        <option value="">자동</option>{calendarFontSizes.map(size => <option key={size} value={size}>{size}px</option>)}
       </select></label>
-      <label>주 시작 요일<select value={settings.week_start} onChange={event => save([put('settings', { ...settings, week_start: Number(event.target.value) as WeekStart })])}>
-        <option value={1}>월요일</option><option value={0}>일요일</option>
+      <label>할 일 글자 크기<select value={settings.todo_font_size ?? 14}
+        onChange={event => save([put('settings', { ...settings, todo_font_size: Number(event.target.value) as Settings['todo_font_size'] })])}>
+        {todoFontSizes.map(size => <option key={size} value={size}>{size}px</option>)}
       </select></label>
     </div>
+    <label>주 시작 요일<select value={settings.week_start} onChange={event => save([put('settings', { ...settings, week_start: Number(event.target.value) as WeekStart })])}>
+      <option value={1}>월요일</option><option value={0}>일요일</option>
+    </select></label>
     <section><h3>카테고리</h3>
       <label>기본 카테고리<CategorySelect categories={categories} value={settings.default_category_id}
         change={default_category_id => save([put('settings', { ...settings, default_category_id })])} /></label>
-      {categories.map(category => <CategoryRow key={category.id} category={category} removable={categories.length > 1}
+      {categories.map((category, index) => <CategoryRow key={category.id} category={category} removable={categories.length > 1}
+        moveUp={index > 0 ? () => reorderCategory(index, index - 1) : undefined}
+        moveDown={index < categories.length - 1 ? () => reorderCategory(index, index + 1) : undefined}
         save={value => save([put('categories', value)])} remove={() => removeCategory(category.id)} />)}
       <form className={styles.categoryRow} onSubmit={event => {
         event.preventDefault()

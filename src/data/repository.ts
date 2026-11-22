@@ -31,10 +31,13 @@ interface CalendarDB extends DBSchema {
 }
 
 const rowKey = (change: Pick<Change, 'collection' | 'id'>) => `${change.collection}/${change.id}`
+// Older server snapshots and local caches can still contain retired collections.
+const supported = (row: Pick<Change, 'collection'>) => collectionNames.includes(row.collection)
 const compare = (a: Mutation, b: Mutation) => a.stamp.localeCompare(b.stamp) || a.operation.localeCompare(b.operation)
 
 function merge(cache: Cache, changes: Mutation[]) {
   for (const change of changes) {
+    if (!supported(change)) continue
     const key = rowKey(change)
     const existing = cache.rows[key]
     if (!existing || compare(existing, change) < 0) cache.rows[key] = change
@@ -43,13 +46,12 @@ function merge(cache: Cache, changes: Mutation[]) {
 }
 
 function snapshot(cache: Cache): RepositoryState {
-  const records: Records = { categories: [], settings: [], items: [], deadlines: [] }
+  const records: Records = { categories: [], settings: [], items: [] }
   for (const row of Object.values(cache.rows)) {
     if (!row.value) continue
     switch (row.collection) {
       case 'categories': records.categories.push(row.value); break
       case 'items': records.items.push(row.value); break
-      case 'deadlines': records.deadlines.push(row.value); break
       case 'settings': records.settings.push(row.value); break
     }
   }
@@ -60,14 +62,14 @@ function snapshot(cache: Cache): RepositoryState {
     if (!records.categories.length) {
       records.categories.push({ ...initialRecords().categories[0], id: settings.default_category_id })
     }
+    const positions = new Map(settings.category_order?.map((id, index) => [id, index]))
+    records.categories.sort((a, b) => (positions.get(a.id) ?? positions.size) - (positions.get(b.id) ?? positions.size))
     const categories = new Set(records.categories.map(category => category.id))
     if (!categories.has(settings.default_category_id)) {
       records.settings[0] = { ...settings, default_category_id: records.categories[0].id }
     }
     const fallback = records.settings[0].default_category_id
     records.items = records.items.map(item => categories.has(item.category_id) ? item : { ...item, category_id: fallback })
-    records.deadlines = records.deadlines.map(deadline => categories.has(deadline.category_id)
-      ? deadline : { ...deadline, category_id: fallback })
   }
   return { records, pending: cache.pending.length }
 }
@@ -92,6 +94,7 @@ export class IndexedRepository implements Repository {
     const existing = await transaction.store.get(this.scope)
     const cache = existing ?? { rows: {}, pending: [], changedAt: 0 }
     if (!existing && !this.remote) this.mutate(cache, recordsToChanges(this.seed()))
+    cache.pending = cache.pending.filter(supported)
     transform(cache)
     await transaction.store.put(cache, this.scope)
     await transaction.done

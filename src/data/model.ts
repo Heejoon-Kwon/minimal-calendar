@@ -1,5 +1,10 @@
 export type DateKey = string
 export type Theme = 'light' | 'dark' | 'system'
+export const customStyles = ['ivory', 'plum', 'charcoal'] as const
+export type CalendarStyle = typeof customStyles[number]
+export type Appearance = Theme | CalendarStyle
+export const calendarFontSizes = [10, 11, 12, 13, 14] as const
+export const todoFontSizes = [12, 14, 16, 18] as const
 export type WeekStart = 0 | 1
 
 export interface Entity {
@@ -18,13 +23,6 @@ export interface Item extends Entity {
   sort_order: number
 }
 
-export interface Deadline extends Entity {
-  title: string
-  start_date: DateKey
-  end_date: DateKey
-  category_id: string
-}
-
 export interface Category extends Entity {
   name: string
   color: string
@@ -34,11 +32,14 @@ export interface Settings extends Entity {
   theme: Theme
   week_start: WeekStart
   default_category_id: string
+  calendar_style?: CalendarStyle
+  calendar_font_size?: typeof calendarFontSizes[number]
+  todo_font_size?: typeof todoFontSizes[number]
+  category_order?: string[]
 }
 
 export interface Collections {
   items: Item
-  deadlines: Deadline
   categories: Category
   settings: Settings
 }
@@ -53,7 +54,7 @@ export function put<K extends Collection>(collection: K, value: Collections[K]):
   return { collection, id: value.id, value } as Change
 }
 
-export const collectionNames = ['categories', 'settings', 'items', 'deadlines'] as const
+export const collectionNames = ['categories', 'settings', 'items'] as const
 
 export const categoryPalette = [
   ['기본', '#697588'], ['공부', '#426ed2'], ['프로젝트', '#7951bc'],
@@ -67,7 +68,7 @@ export function initialRecords(): Records {
   const categories = categoryPalette.map(([name, color], index) => ({
     id: `category-${index + 1}`, created_at: seedDate, updated_at: seedDate, name, color,
   }))
-  return { categories, items: [], deadlines: [], settings: [
+  return { categories, items: [], settings: [
     { id: 'preferences', created_at: seedDate, updated_at: seedDate, theme: 'system', week_start: 1, default_category_id: categories[0].id },
   ] }
 }

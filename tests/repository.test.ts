@@ -102,3 +102,16 @@ describe('IndexedDB Repository', () => {
     expect(() => decodeBackup(encodeBackup({ ...incoming, items: [{ ...incoming.items[0], category_id: 'unknown' }] }))).toThrow()
   })
 })
+
+it('이전 백업의 기한을 제외하고 새 화면 설정과 카테고리 순서를 복원한다', async () => {
+  const records = initialRecords()
+  const category_order = ['category-3', 'category-2']
+  records.settings[0] = { ...records.settings[0], calendar_style: 'ivory', calendar_font_size: 10, todo_font_size: 18, category_order }
+  const backup = JSON.stringify({ version: 1, records: { ...records, deadlines: [{ id: 'old' }] } })
+  const decoded = decodeBackup(backup)
+  expect(decoded).not.toHaveProperty('deadlines')
+  const repository = new IndexedRepository('local', initialRecords, undefined, fresh())
+  const restored = await repository.apply(replaceChanges(initialRecords(), decoded))
+  expect(restored.records.settings[0]).toMatchObject({ calendar_style: 'ivory', calendar_font_size: 10, todo_font_size: 18 })
+  expect(restored.records.categories.slice(0, 2).map(({ id }) => id)).toEqual(category_order)
+})
