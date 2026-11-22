@@ -102,10 +102,12 @@ test('기한 선택 및 주간 연속선, 주 시작 변경, 오프라인 앱 �
     await page.getByRole('button', { name: '할 일 목록' }).click()
     await page.getByRole('button', { name: '할 일 추가' }).click()
     await page.getByLabel('제목').fill('오프라인 할 일')
+    const savedTodo = page.getByRole('button', { name: '오프라인 할 일', exact: true })
     await page.getByRole('button', { name: '저장' }).click()
+    await expect(savedTodo).toBeVisible()
     await context.setOffline(false)
     await page.reload()
     await page.getByRole('button', { name: '할 일 목록' }).click()
-    await expect(page.getByRole('button', { name: '오프라인 할 일', exact: true })).toBeVisible()
+    await expect(savedTodo).toBeVisible()
   }
 })
