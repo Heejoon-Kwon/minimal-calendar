@@ -313,7 +313,9 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
           if (clickMoving && movingItem) schedule(movingItem, date)
           else setOverlay({ kind: 'date', date })
         }} openItem={editItem} quickCategory={setAnchor}
-        landing={landing} moving={Boolean(dragging)} picking={Boolean(clickMoving)} />
+        landing={landing} moving={Boolean(dragging)} picking={Boolean(clickMoving)}
+        swipeMonth={!overlay && !anchor && !dragging && !clickMoving
+          ? offset => setMonth(value => moveMonth(value, offset)) : undefined} />
       <footer className={styles.todoDock}>
         {movingItem ? <DropCancel cancel={cancelMove} /> :
           <TodoTrigger buttonRef={todoTriggerRef} count={todos.length} open={todoOpen}

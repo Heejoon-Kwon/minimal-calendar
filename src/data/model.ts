@@ -3,8 +3,8 @@ export type Theme = 'light' | 'dark' | 'system'
 export const customStyles = ['ivory', 'plum', 'charcoal'] as const
 export type CalendarStyle = typeof customStyles[number]
 export type Appearance = Theme | CalendarStyle
-export const calendarFontSizes = [10, 11, 12, 13, 14] as const
-export const todoFontSizes = [12, 14, 16, 18] as const
+export const calendarFontSizes = [8, 9, 10, 11, 12, 13, 14] as const
+export const todoFontSizes = [8, 9, 10, 11, 12, 14, 16, 18] as const
 export type WeekStart = 0 | 1
 
 export interface Entity {

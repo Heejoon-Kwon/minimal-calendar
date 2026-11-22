@@ -116,15 +116,23 @@ test('글자 크기와 카테고리 순서가 다시 열어도 적용된다', as
   await page.getByRole('button', { name: '할 일 목록' }).click()
   await expect(page.getByRole('button', { name: '읽을 책', exact: true })).toHaveCSS('font-size', '18px')
 
-  if (page.viewportSize()!.width < 760) {
-    const visible = cell(page, '2026-08-18').locator('[data-event]')
-    const previous = await visible.count()
-    await page.getByRole('button', { name: '설정', exact: true }).click()
-    await settings.getByLabel('달력 일정 글자 크기').selectOption('10')
-    await settings.getByRole('button', { name: '닫기' }).click()
-    await expect(event).toHaveCSS('font-size', '10px')
-    expect(await visible.count()).toBeGreaterThan(previous)
-  }
+  const visible = cell(page, '2026-08-18').locator('[data-event]')
+  const previous = await visible.count()
+  await page.getByRole('button', { name: '설정', exact: true }).click()
+  await settings.getByLabel('달력 일정 글자 크기').selectOption('8')
+  await settings.getByRole('button', { name: '닫기' }).click()
+  await expect(event).toHaveCSS('font-size', '8px')
+  expect(await visible.count()).toBeGreaterThan(previous)
+
+  await page.getByRole('button', { name: '설정', exact: true }).click()
+  await settings.getByLabel('할 일 글자 크기').selectOption('8')
+  await settings.getByRole('button', { name: '닫기' }).click()
+  const todo = page.getByRole('button', { name: '읽을 책', exact: true })
+  await expect(todo).toHaveCSS('font-size', '8px')
+  await page.reload()
+  await expect(event).toHaveCSS('font-size', '8px')
+  await page.getByRole('button', { name: '할 일 목록' }).click()
+  await expect(todo).toHaveCSS('font-size', '8px')
 })
 
 test('하단 버튼과 Alt+J로 할 일을 열고 오늘이 있는 줄을 비켜서 표시한다', async ({ page }) => {

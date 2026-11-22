@@ -24,6 +24,7 @@ interface CalendarProps {
   landing?: { itemId: string; date: DateKey; color: string }
   moving: boolean
   picking: boolean
+  swipeMonth?: (offset: -1 | 1) => void
 }
 
 function EventEntry({ item, category, lines, landed, open, quick }: {
@@ -113,6 +114,9 @@ export function CalendarView(props: CalendarProps) {
   const [metrics, setMetrics] = useState({ height: 0, width: 0, event: 19, header: 25, compact: false })
   const textMeasure = useRef<CanvasRenderingContext2D | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+  const gesture = useRef<{ id: number; x: number; y: number; monthAllowed: boolean }>(null)
+  const suppressClick = useRef(false)
+  const slideDirection = useRef<-1 | 1 | null>(null)
   const weeks = monthWeeks(props.month, props.weekStart)
   const byDay = new Map<DateKey, Item[]>()
   for (const item of props.items) {
@@ -144,13 +148,66 @@ export function CalendarView(props: CalendarProps) {
     return () => observer.disconnect()
   }, [fontSize])
 
+  useLayoutEffect(() => {
+    const direction = slideDirection.current
+    slideDirection.current = null
+    const grid = gridRef.current
+    if (!direction || !grid || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const animation = grid.animate([
+      { transform: `translateX(${direction * 28}px)`, opacity: .72 },
+      { transform: 'translateX(0)', opacity: 1 },
+    ], { duration: 180, easing: 'ease-out' })
+    return () => animation.cancel()
+  }, [props.month])
+
+  function trackMovement(event: PointerEvent<HTMLElement>) {
+    const start = gesture.current
+    if (!start || event.pointerId !== start.id) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) suppressClick.current = true
+    return start
+  }
+
   const measureTitle = textMeasure.current
   const wraps = (title: string) => metrics.compact && !!measureTitle
     && measureTitle.measureText(title).width > metrics.width / 7 - 5
   const slots = eventSlots(metrics.height / weeks.length, metrics.header, metrics.event)
 
   return <section className={styles.calendar} style={fontSize ? { '--event-font': `${fontSize}px` } as CSSProperties : undefined}
-    aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}>
+    aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}
+    onPointerDown={event => {
+      if (!event.isPrimary) {
+        if (gesture.current) suppressClick.current = true
+        gesture.current = null
+        return
+      }
+      suppressClick.current = false
+      gesture.current = event.pointerType !== 'mouse'
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY, monthAllowed: Boolean(props.swipeMonth) } : null
+    }}
+    onPointerMove={trackMovement}
+    onPointerUp={event => {
+      const start = trackMovement(event)
+      if (!start) return
+      gesture.current = null
+      const horizontal = event.clientX - start.x
+      const vertical = Math.abs(event.clientY - start.y)
+      if (start.monthAllowed && props.swipeMonth && Math.abs(horizontal) >= 52 && Math.abs(horizontal) > vertical * 1.5) {
+        const offset = horizontal < 0 ? 1 : -1
+        slideDirection.current = offset
+        props.swipeMonth(offset)
+      }
+    }}
+    onPointerCancel={event => {
+      if (gesture.current?.id !== event.pointerId) return
+      gesture.current = null
+      suppressClick.current = true
+    }}
+    onClickCapture={event => {
+      if (!suppressClick.current || !event.detail) return
+      suppressClick.current = false
+      event.preventDefault()
+      event.stopPropagation()
+    }}>
     <div className={styles.weekdays}>
       {Array.from({ length: 7 }, (_, index) => (index + props.weekStart) % 7).map(day =>
         <div key={day} data-weekend={day === 0 || day === 6}>{labels[day]}<span>요일</span></div>)}

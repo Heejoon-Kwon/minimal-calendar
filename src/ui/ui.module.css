@@ -141,6 +141,8 @@
   --weekend: color-mix(in srgb, var(--ink) 3%, var(--surface));
   display: grid;
   grid-template-rows: 32px minmax(0, 1fr);
+  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -201,7 +203,7 @@
   to { transform: translateY(0); opacity: 1; }
 }
 .eventTitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.eventTime { flex: none; opacity: .85; font-size: 11px; font-variant-numeric: tabular-nums; }
+.eventTime { flex: none; opacity: .85; font-size: min(11px, var(--event-font)); font-variant-numeric: tabular-nums; }
 .event[data-completed='true'] .eventTitle, .todoTitle[data-completed='true'] { text-decoration: line-through; opacity: .72; }
 .todoDock { display: grid; place-items: stretch center; min-height: 0; }
 .todoFab, .dropCancel {
