@@ -126,3 +126,34 @@ test('글자 크기와 카테고리 순서가 다시 열어도 적용된다', as
     expect(await visible.count()).toBeGreaterThan(previous)
   }
 })
+
+test('하단 버튼과 Alt+J로 할 일을 열고 오늘이 있는 줄을 비켜서 표시한다', async ({ page }) => {
+  await openApp(page)
+  const trigger = page.getByRole('button', { name: '할 일 목록' })
+  const panel = page.getByRole('complementary', { name: '할 일' })
+  const lowerToday = cell(page, '2026-08-18')
+  const upperToday = cell(page, '2026-08-04')
+  const calendar = page.getByRole('region', { name: '월간 달력' })
+  const calendarBox = (await calendar.boundingBox())!
+  expect((await trigger.boundingBox())!.y).toBeGreaterThanOrEqual(calendarBox.y + calendarBox.height)
+
+  await page.keyboard.press('Alt+j')
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  await expect(trigger).toBeFocused()
+  await expect(panel).toHaveAttribute('data-side', 'top')
+  const topPanel = (await panel.boundingBox())!
+  expect(topPanel.y + topPanel.height).toBeLessThan((await lowerToday.boundingBox())!.y)
+
+  await page.keyboard.press('Alt+j')
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(panel).toHaveCount(0)
+
+  await page.clock.setFixedTime(new Date('2026-08-04T12:00:00'))
+  await page.getByRole('button', { name: '오늘', exact: true }).click()
+  await trigger.click()
+  await expect(panel).toHaveAttribute('data-side', 'bottom')
+  const topToday = (await upperToday.boundingBox())!
+  expect((await panel.boundingBox())!.y).toBeGreaterThan(topToday.y + topToday.height)
+  await page.keyboard.press('Escape')
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+})

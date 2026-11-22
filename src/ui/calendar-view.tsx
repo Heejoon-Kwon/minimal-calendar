@@ -89,7 +89,7 @@ function DayCell({ day, entries, slots, wraps, props }: {
 
   return <div ref={setNodeRef} className={styles.day} data-date={key} style={landing ? tint(landing.color) : undefined}
     data-adjacent={day.getMonth() !== props.month.getMonth()} data-landed={Boolean(landing)}
-    data-holiday={Boolean(holiday || day.getDay() === 0)} data-over={props.moving && isOver}
+    data-weekend={day.getDay() === 0 || day.getDay() === 6} data-holiday={Boolean(holiday)} data-over={props.moving && isOver}
     onClick={event => { if (!props.moving && event.target === event.currentTarget) open() }}>
     <div className={styles.dayHeader}>
       <button className={styles.dayButton} aria-label={[readableDate(key), holiday].filter(Boolean).join(', ')}
@@ -153,7 +153,7 @@ export function CalendarView(props: CalendarProps) {
     aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}>
     <div className={styles.weekdays}>
       {Array.from({ length: 7 }, (_, index) => (index + props.weekStart) % 7).map(day =>
-        <div key={day} data-sunday={day === 0}>{labels[day]}<span>요일</span></div>)}
+        <div key={day} data-weekend={day === 0 || day === 6}>{labels[day]}<span>요일</span></div>)}
     </div>
     <div ref={gridRef} className={styles.grid} data-weeks={weeks.length} style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}>
       {weeks.map(week => <div className={styles.week} key={dateKey(week[0])}>

@@ -1,16 +1,22 @@
 import { expect, test } from '@playwright/test'
 import { cell, center, emptyRecords, item, openApp, restore } from './browser-fixtures'
 
-test('터치 길게 눌러 Todo를 배치하고 일정의 카테고리 열기', async ({ page, context, browserName, hasTouch }) => {
+test('하단 스와이프로 할 일 열기, 길게 눌러 날짜에 배치하기', async ({ page, context, browserName, hasTouch }) => {
   test.skip(browserName !== 'chromium' || !hasTouch)
   await openApp(page)
   const records = emptyRecords()
   records.items.push(item('터치 작업', null))
   await restore(page, records)
-  await page.getByRole('button', { name: '할 일 목록' }).tap()
+  const cdp = await context.newCDPSession(page)
+  const trigger = page.getByRole('button', { name: '할 일 목록' })
+  const grip = await center(trigger)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [grip] })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: grip.x, y: grip.y - 78 }] })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+
   const todo = page.getByRole('button', { name: '터치 작업', exact: true })
   const source = await center(todo)
-  const cdp = await context.newCDPSession(page)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [source] })
   await expect(page.getByRole('button', { name: '이동 취소' })).toBeVisible()
   const selected = cell(page, '2026-08-18')

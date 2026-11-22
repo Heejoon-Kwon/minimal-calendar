@@ -1,3 +1,4 @@
+import { useRef, type RefObject } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { ArrowDown, ArrowUp, Check, GripVertical, ListTodo, MoreHorizontal, Plus, X } from 'lucide-react'
 import type { Item } from '../data/model'
@@ -24,12 +25,50 @@ function TodoRow({ item, category, edit, toggle, reorder, quickCategory, move, f
   </li>
 }
 
-export function TodoPanel({ items, category, close, add, edit, toggle, reorder, quickCategory, move, hidden }: {
+export function TodoTrigger({ buttonRef, count, open, toggle, reveal }: {
+  buttonRef: RefObject<HTMLButtonElement | null>; count: number; open: boolean; toggle: () => void; reveal: () => void
+}) {
+  const start = useRef<{ id: number; x: number; y: number }>(null)
+  const swiped = useRef(false)
+
+  return <button ref={buttonRef} className={styles.todoFab} aria-label="할 일 목록" aria-controls="todo-panel"
+    aria-expanded={open} aria-keyshortcuts="Alt+J" title="할 일 목록 (Alt+J)"
+    onPointerDown={event => {
+      swiped.current = false
+      if (!event.isPrimary || event.pointerType === 'mouse') return
+      start.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }}
+    onPointerUp={event => {
+      const point = start.current
+      if (!point || point.id !== event.pointerId) return
+      start.current = null
+      const distance = point.y - event.clientY
+      if (distance < 42 || Math.abs(event.clientX - point.x) > distance * .65) return
+      swiped.current = true
+      reveal()
+    }}
+    onLostPointerCapture={() => { start.current = null }}
+    onClick={event => {
+      if (swiped.current && event.detail > 0) {
+        swiped.current = false
+        return
+      }
+      toggle()
+    }}>
+    <span className={styles.todoGrip} aria-hidden="true" />
+    <ListTodo size={15} /><span>할 일</span>{count > 0 && <small>{count}</small>}
+    <kbd aria-hidden="true">Alt+J</kbd>
+  </button>
+}
+
+export function TodoPanel({ items, category, close, add, edit, toggle, reorder, quickCategory, move, open, side }: {
   items: Item[]; category: CategoryLookup; close: () => void; add: () => void; edit: (item: Item) => void
   toggle: (item: Item) => void; reorder: (index: number, offset: number) => void
-  quickCategory: (anchor: CategoryAnchor) => void; move: (item: Item) => void; hidden: boolean
+  quickCategory: (anchor: CategoryAnchor) => void; move: (item: Item) => void; open: boolean; side: 'top' | 'bottom'
 }) {
-  return <aside className={styles.todoPanel} aria-label="할 일" aria-hidden={hidden} inert={hidden} data-dragging={hidden}>
+  return <aside id="todo-panel" className={styles.todoPanel} aria-label="할 일"
+    aria-hidden={!open} inert={!open} data-open={open} data-side={side}>
     <div className={styles.panelHeading}><h2><ListTodo size={17} /> 할 일 <span>{items.length}</span></h2>
       <button className={styles.icon} aria-label="할 일 닫기" onClick={close}><X size={17} /></button></div>
     <div className={styles.todoBody}>

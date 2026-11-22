@@ -2,15 +2,15 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent, type Modifier,
 } from '@dnd-kit/core'
-import { CalendarRange, Check, ChevronLeft, ChevronRight, ListTodo, Plus, Settings2 } from 'lucide-react'
-import { dateKey, moveMonth, readableDate, sortEvents, sortTodos } from '../calendar'
+import { CalendarRange, Check, ChevronLeft, ChevronRight, Plus, Settings2 } from 'lucide-react'
+import { dateKey, monthWeeks, moveMonth, readableDate, sortEvents, sortTodos } from '../calendar'
 import { put, type Change, type DateKey, type Item } from '../data/model'
 import type { Repository, RepositoryState } from '../data/repository'
 import { CalendarView, tint, type CategoryAnchor } from './calendar-view'
 import { Dialog } from './dialog'
 import { ItemEditor } from './editors'
 import { SettingsPanel } from './settings'
-import { DropCancel, TodoPanel } from './todos'
+import { DropCancel, TodoPanel, TodoTrigger } from './todos'
 import styles from './ui.module.css'
 
 type Overlay =
@@ -77,6 +77,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
   const anchorRef = useRef<HTMLDivElement>(null)
+  const todoTriggerRef = useRef<HTMLButtonElement>(null)
   const releasePoint = useRef<{ x: number; y: number }>(null)
   const sensors = useSensors(
     useSensor(CalendarMouseSensor, { activationConstraint: { distance: 5 } }),
@@ -147,12 +148,30 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }, [state?.records.settings, systemDark])
 
   useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
+    function keydown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        setAnchor(undefined)
-        setClickMoving(undefined)
+        if (anchor) setAnchor(undefined)
+        else if (clickMoving) setClickMoving(undefined)
+        else if (todoOpen && !overlay && !dragging) {
+          setTodoOpen(false)
+          todoTriggerRef.current?.focus()
+        }
+        return
+      }
+      const target = event.target
+      if (event.defaultPrevented || event.repeat || event.isComposing || overlay || anchor || dragging || clickMoving
+        || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select')))) return
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === 'KeyJ') {
+        event.preventDefault()
+        setTodoOpen(open => !open)
+        todoTriggerRef.current?.focus()
       }
     }
+    window.addEventListener('keydown', keydown)
+    return () => window.removeEventListener('keydown', keydown)
+  }, [anchor, clickMoving, dragging, overlay, todoOpen])
+
+  useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (anchorRef.current && !anchorRef.current.contains(event.target as Node)) setAnchor(undefined)
     }
@@ -160,12 +179,10 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       const point = 'changedTouches' in event ? event.changedTouches[0] : event
       if (point) releasePoint.current = { x: point.clientX, y: point.clientY }
     }
-    window.addEventListener('keydown', keydown)
     window.addEventListener('pointerdown', outside)
     window.addEventListener('mouseup', captureRelease, true)
     window.addEventListener('touchend', captureRelease, true)
     return () => {
-      window.removeEventListener('keydown', keydown)
       window.removeEventListener('pointerdown', outside)
       window.removeEventListener('mouseup', captureRelease, true)
       window.removeEventListener('touchend', captureRelease, true)
@@ -204,6 +221,9 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const category = (id: string) => categories.find(value => value.id === id) ?? defaultCategory
   const todos = sortTodos(items.filter(item => item.date === null))
   const movingItem = todos.find(item => item.id === (dragging ?? clickMoving))
+  const weeks = monthWeeks(month, settings.week_start)
+  const todayRow = weeks.findIndex(week => week.some(day => dateKey(day) === today))
+  const todoSide = todayRow >= Math.ceil(weeks.length / 2) ? 'top' : 'bottom'
 
   function schedule(item: Item, date: DateKey) {
     setTodoOpen(false)
@@ -286,12 +306,6 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
           <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout}
             data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'}>{syncLabel}</button>
           <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })} disabled={Boolean(movingItem)}><Settings2 size={18} /></button>
-          <div className={styles.todoControl}>
-            {movingItem ? <DropCancel cancel={cancelMove} /> :
-              <button className={styles.todoFab} aria-expanded={todoOpen} onClick={() => setTodoOpen(value => !value)} aria-label="할 일 목록">
-                <ListTodo size={18} /><span>할 일</span>{todos.length > 0 && <small>{todos.length}</small>}
-              </button>}
-          </div>
         </div>
       </header>
       <CalendarView month={month} today={today} weekStart={settings.week_start} items={items} fontSize={settings.calendar_font_size}
@@ -300,17 +314,22 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
           else setOverlay({ kind: 'date', date })
         }} openItem={editItem} quickCategory={setAnchor}
         landing={landing} moving={Boolean(dragging)} picking={Boolean(clickMoving)} />
+      <footer className={styles.todoDock}>
+        {movingItem ? <DropCancel cancel={cancelMove} /> :
+          <TodoTrigger buttonRef={todoTriggerRef} count={todos.length} open={todoOpen}
+            toggle={() => setTodoOpen(open => !open)} reveal={() => setTodoOpen(true)} />}
+      </footer>
       {landing && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
       {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
-      {todoOpen && <TodoPanel items={todos} category={category} hidden={Boolean(dragging || clickMoving)}
-        close={() => setTodoOpen(false)} add={() => setOverlay({ kind: 'item', date: null })}
+      <TodoPanel items={todos} category={category} open={todoOpen && !dragging && !clickMoving} side={todoSide}
+        close={() => { setTodoOpen(false); todoTriggerRef.current?.focus() }} add={() => setOverlay({ kind: 'item', date: null })}
         edit={item => editItem(item)} toggle={item => commit([put('items', { ...item, completed: !item.completed })])}
         reorder={(index, offset) => {
           const sorted = [...todos]
           const [item] = sorted.splice(index, 1)
           sorted.splice(index + offset, 0, item)
           commit(sorted.flatMap((value, position) => value.sort_order === position ? [] : [put('items', { ...value, sort_order: position })]))
-        }} quickCategory={setAnchor} move={item => setClickMoving(item.id)} />}
+        }} quickCategory={setAnchor} move={item => setClickMoving(item.id)} />
       {anchor && <div ref={anchorRef} className={styles.categoryPopover} role="dialog" aria-label="카테고리 변경"
         style={{ left: Math.max(8, Math.min(anchor.x, window.innerWidth - 184)), top: Math.max(8, Math.min(anchor.y, window.innerHeight - 292)) }}>
         {categories.map(value => <button key={value.id} className={styles.categoryChoice}
