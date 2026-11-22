@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent, type Modifier,
 } from '@dnd-kit/core'
-import { CalendarRange, ChevronLeft, ChevronRight, ListTodo, Plus, Settings2, X } from 'lucide-react'
+import { CalendarRange, Check, ChevronLeft, ChevronRight, ListTodo, Plus, Settings2, X } from 'lucide-react'
 import { dateKey, moveMonth, readableDate, sortEvents, sortTodos } from '../calendar'
 import { put, type Change, type DateKey, type Item } from '../data/model'
 import type { Repository, RepositoryState } from '../data/repository'
@@ -44,14 +44,18 @@ class CalendarTouchSensor extends TouchSensor {
   }))
 }
 
-const followPointer: Modifier = ({ activatorEvent, draggingNodeRect, transform, windowRect }) => {
+const followPointer: Modifier = ({ activatorEvent, draggingNodeRect, overlayNodeRect, transform, windowRect }) => {
   if (!activatorEvent || !draggingNodeRect || !windowRect) return transform
   const point = 'touches' in activatorEvent
     ? (activatorEvent as TouchEvent).touches[0]
     : activatorEvent as MouseEvent
   if (!point) return transform
-  const left = Math.max(5, Math.min(point.clientX + transform.x + 12, windowRect.width - 185))
-  const top = Math.max(5, Math.min(point.clientY + transform.y + 12, windowRect.height - 38))
+  const x = point.clientX + transform.x
+  const y = point.clientY + transform.y
+  const width = overlayNodeRect?.width ?? 180
+  const height = overlayNodeRect?.height ?? 28
+  const left = Math.max(5, Math.min(x + 12, windowRect.width - width - 5))
+  const top = Math.max(5, y + height + 18 <= windowRect.height ? y + 12 : y - height - 12)
   return { ...transform, x: left - draggingNodeRect.left, y: top - draggingNodeRect.top }
 }
 
@@ -71,6 +75,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [todoOpen, setTodoOpen] = useState(false)
   const [dragging, setDragging] = useState<string>()
   const [clickMoving, setClickMoving] = useState<string>()
+  const [landing, setLanding] = useState<{ itemId: string; date: DateKey; color: string }>()
   const [picking, setPicking] = useState(false)
   const [start, setStart] = useState<DateKey>()
   const [end, setEnd] = useState<DateKey>()
@@ -163,6 +168,12 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     }
   }, [cancelRange])
 
+  useEffect(() => {
+    if (!landing) return
+    const timeout = window.setTimeout(() => setLanding(undefined), 2000)
+    return () => window.clearTimeout(timeout)
+  }, [landing])
+
   async function apply(changes: Change[]) {
     setActionError('')
     try {
@@ -191,9 +202,11 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const movingItem = todos.find(item => item.id === (dragging ?? clickMoving))
 
   function schedule(item: Item, date: DateKey) {
-    commit([put('items', { ...item, date, start_time: null, end_time: null })])
     setTodoOpen(false)
     cancelMove()
+    void apply([put('items', { ...item, date, start_time: null, end_time: null })])
+      .then(() => setLanding({ itemId: item.id, date, color: category(item.category_id).color }))
+      .catch(() => setTodoOpen(true))
   }
 
   function drop(event: DragEndEvent) {
@@ -305,7 +318,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
           else setOverlay({ kind: 'date', date })
         }} openItem={editItem} quickCategory={setAnchor}
         openDeadlines={values => setOverlay({ kind: 'deadlines', ids: values.map(value => value.id) })}
-        moving={Boolean(dragging)} picking={picking || Boolean(clickMoving)} rangePicking={picking}
+        landing={landing} moving={Boolean(dragging)} picking={picking || Boolean(clickMoving)} rangePicking={picking}
         range={start ? { start, end: end && end >= start ? end : start } : null}
         hoverDate={date => { if (picking && start) setEnd(date) }}
         selectDate={date => {
@@ -316,6 +329,9 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
         {picking ? <div className={styles.modeHint} role="status">{start ? '종료일을 선택하세요' : '시작일을 선택하세요'}
           <button className={styles.icon} aria-label="기한 선택 취소" onClick={cancelRange}><X size={17} /></button></div>
           : movingItem ? <div className={styles.modeHint} role="status">달력에서 날짜를 선택하세요</div>
+            : landing ? <div className={`${styles.modeHint} ${styles.placementStatus}`} role="status">
+              <Check size={14} /> {readableDate(landing.date)}에 배치했어요
+            </div>
             : <div className={styles.legend}><span className={styles.legendLine} />기한<span className={styles.legendEvent} />일정</div>}
         {actionError && <span className={styles.error} role="alert">{actionError}</span>}
         {movingItem ? <DropCancel cancel={cancelMove} /> : !picking && <div className={styles.floatingActions}>
@@ -345,7 +361,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       </div>}
       {dialog}
     </main>
-    <DragOverlay modifiers={[followPointer]} dropAnimation={null}>{dragging && movingItem && <div className={styles.dragGhost} data-drag-preview style={tint(category(movingItem.category_id).color)}>
+    <DragOverlay modifiers={[followPointer]} style={{ width: 'max-content', maxWidth: 180 }} dropAnimation={null}>{dragging && movingItem && <div className={styles.dragGhost} data-drag-preview style={tint(category(movingItem.category_id).color)}>
       {movingItem.title}
     </div>}</DragOverlay>
   </DndContext>

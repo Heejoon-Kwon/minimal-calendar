@@ -19,10 +19,19 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
     await page.screenshot({ path: info.outputPath(`visual/${name}.png`), animations: 'disabled' })
   }
 
+  const holiday = cell(page, '2026-08-17')
+  await expect(holiday.getByRole('button', { name: /대체공휴일\(광복절\)/ })).toHaveCSS('color', 'rgb(173, 48, 58)')
+  await expect(holiday).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(today).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await capture('04-six-weeks')
   const sparse = emptyRecords()
-  sparse.items.push(item('산책', '2026-08-07'), item('전시 관람', '2026-08-22', 5))
+  sparse.items.push(item('산책', '2026-08-07'), item('프로그래밍 스터디', '2026-08-22', 5))
   await restore(page, sparse)
+  if (viewport.width < 760) {
+    const longTitle = cell(page, '2026-08-22').getByRole('button', { name: '프로그래밍 스터디' })
+    await expect(longTitle).toHaveCSS('font-size', '11px')
+    expect((await longTitle.boundingBox())!.height).toBeGreaterThan(20)
+  }
   await capture('01-sparse')
 
   const moderate = demoRecords(new Date('2026-08-18T12:00:00'))
@@ -39,6 +48,12 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
   moderate.items.push(...titles.slice(4).map((title, index) => item(title, '2026-08-18', index + 4)))
   await restore(page, moderate)
   await expect(today.getByRole('button', { name: /^\+\d+개$/ })).toBeVisible()
+  if (viewport.width < 760) {
+    const more = today.getByRole('button', { name: /^\+\d+개$/ })
+    const top = (await today.boundingBox())!.y
+    expect((await more.boundingBox())!.y - top).toBeLessThan(18)
+    expect(await today.locator('[data-event]').count()).toBeGreaterThanOrEqual(4)
+  }
   await capture('03-overflow')
   await today.getByRole('button', { name: /^\+\d+개$/ }).click()
   const dayPanel = page.getByRole('dialog')
@@ -78,6 +93,7 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
   await page.mouse.move(target.x, target.y, { steps: 8 })
   await expect(page.getByRole('button', { name: '이동 취소' })).toBeVisible()
   await expect(today).toHaveAttribute('data-over', 'true')
+  await expect(today).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   const preview = await page.locator('[data-drag-preview]').boundingBox()
   expect(preview!.x).toBeGreaterThanOrEqual(0)
   expect(preview!.x + preview!.width).toBeLessThanOrEqual(viewport.width)

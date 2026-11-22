@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { dateKey, deadlineLaneHeight, deadlineSegments, deadlineSpace, eventSlots, monthWeeks, readableDate, sortEvents, weekCapacity } from '../calendar'
+import { koreanHoliday } from '../data/holidays'
 import type { Category, DateKey, Deadline, Item, WeekStart } from '../data/model'
 import styles from './ui.module.css'
 
@@ -21,6 +22,7 @@ interface CalendarProps {
   openItem: (item: Item) => void
   quickCategory: (anchor: CategoryAnchor) => void
   openDeadlines: (deadlines: Deadline[]) => void
+  landing?: { itemId: string; date: DateKey; color: string }
   moving: boolean
   picking: boolean
   rangePicking: boolean
@@ -29,8 +31,8 @@ interface CalendarProps {
   selectDate: (date: DateKey) => void
 }
 
-function EventEntry({ item, category, open, quick }: {
-  item: Item; category: Category; open: () => void; quick: (anchor: CategoryAnchor) => void
+function EventEntry({ item, category, lines, landed, open, quick }: {
+  item: Item; category: Category; lines: number; landed: boolean; open: () => void; quick: (anchor: CategoryAnchor) => void
 }) {
   const timer = useRef<number>(undefined)
   const initial = useRef({ x: 0, y: 0 })
@@ -56,7 +58,8 @@ function EventEntry({ item, category, open, quick }: {
     }, 480)
   }
 
-  return <button className={styles.event} style={tint(category.color)} data-completed={item.completed}
+  return <button className={styles.event} style={{ ...tint(category.color), '--title-lines': lines } as CSSProperties}
+    data-event={item.id} data-landed={landed} data-completed={item.completed}
     onPointerDown={start} onPointerUp={clear} onPointerCancel={clear} onPointerLeave={clear}
     onPointerMove={event => {
       if (Math.hypot(event.clientX - initial.current.x, event.clientY - initial.current.y) > 9) clear()
@@ -76,38 +79,56 @@ function EventEntry({ item, category, open, quick }: {
   </button>
 }
 
-function DayCell({ day, entries, slots, overflow, props }: {
-  day: Date; entries: Item[]; slots: number; overflow?: Deadline[]; props: CalendarProps
+function DayCell({ day, entries, slots, compact, wraps, overflow, props }: {
+  day: Date; entries: Item[]; slots: number; compact: boolean; wraps: (title: string) => boolean
+  overflow?: Deadline[]; props: CalendarProps
 }) {
   const key = dateKey(day)
   const today = key === props.today
+  const holiday = koreanHoliday(day)
+  const landing = props.landing?.date === key ? props.landing : undefined
   const selected = props.range && key >= props.range.start && key <= props.range.end
   const { setNodeRef, isOver } = useDroppable({ id: key })
-  const hidden = entries.length > slots ? entries.length - slots + 1 : 0
+  const overflowInHeader = compact && !overflow
+  const titleCount = entries.length > slots && !overflowInHeader ? slots - 1 : slots
+  const visibleEvents = entries.slice(0, titleCount)
+  const hidden = entries.length - visibleEvents.length
+  let spareLines = slots - visibleEvents.length - Number(hidden > 0 && !overflowInHeader)
   const inactive = props.moving || props.picking
   const open = () => props.picking ? props.selectDate(key) : props.openDate(key)
 
-  return <div ref={setNodeRef} className={styles.day} data-date={key}
-    data-adjacent={day.getMonth() !== props.month.getMonth()} data-weekend={[0, 6].includes(day.getDay())}
-    data-today={today} data-over={props.moving && isOver} data-selected={Boolean(selected)}
+  const more = hidden > 0 && <button className={overflowInHeader ? styles.headerOverflow : styles.eventOverflow}
+    aria-label={`+${hidden}개`} onClick={() => props.openDate(key)}>+{hidden}{!overflowInHeader && '개'}</button>
+
+  return <div ref={setNodeRef} className={styles.day} data-date={key} style={landing ? tint(landing.color) : undefined}
+    data-adjacent={day.getMonth() !== props.month.getMonth()}
+    data-holiday={Boolean(holiday || day.getDay() === 0)} data-over={props.moving && isOver}
+    data-selected={Boolean(selected)} data-landed={Boolean(landing)}
     onPointerEnter={() => { if (props.picking) props.hoverDate(key) }}
     onClick={event => { if (event.target === event.currentTarget) open() }}>
     <div className={styles.dayHeader}>
-      <button className={styles.dayButton} aria-label={readableDate(key)} aria-current={today ? 'date' : undefined}
+      <button className={styles.dayButton} aria-label={[readableDate(key), holiday].filter(Boolean).join(', ')}
+        title={holiday} aria-current={today ? 'date' : undefined}
         disabled={props.moving} onClick={open}>{day.getDate()}</button>
+      {overflowInHeader && !inactive && more}
       {overflow && !inactive && <button className={styles.deadlineOverflow} aria-label={`숨은 기한 ${overflow.length}개`}
         onClick={() => props.openDeadlines(overflow)}>+{overflow.length}</button>}
     </div>
     <div className={styles.events} aria-hidden={inactive} inert={inactive}>
-      {entries.slice(0, hidden ? slots - 1 : slots).map(item => <EventEntry key={item.id} item={item}
-        category={props.category(item.category_id)} open={() => props.openItem(item)} quick={props.quickCategory} />)}
-      {hidden > 0 && <button className={styles.eventOverflow} onClick={() => props.openDate(key)}>+{hidden}개</button>}
+      {visibleEvents.map(item => {
+        const lines = spareLines > 0 && wraps(item.title) ? 2 : 1
+        spareLines -= lines - 1
+        return <EventEntry key={item.id} item={item} lines={lines} landed={item.id === landing?.itemId}
+          category={props.category(item.category_id)} open={() => props.openItem(item)} quick={props.quickCategory} />
+      })}
+      {!overflowInHeader && more}
     </div>
   </div>
 }
 
 export function CalendarView(props: CalendarProps) {
-  const [metrics, setMetrics] = useState({ height: 0, event: 19, header: 27 })
+  const [metrics, setMetrics] = useState({ height: 0, width: 0, event: 19, header: 27, compact: false })
+  const textMeasure = useRef<CanvasRenderingContext2D | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<{ date: DateKey; x: number; y: number; pointer: number } | null>(null)
   const weeks = monthWeeks(props.month, props.weekStart)
@@ -121,10 +142,16 @@ export function CalendarView(props: CalendarProps) {
   useLayoutEffect(() => {
     const grid = gridRef.current
     if (!grid) return
+    textMeasure.current = document.createElement('canvas').getContext('2d')
     const measure = () => {
       const css = getComputedStyle(grid)
+      if (textMeasure.current) {
+        textMeasure.current.font = `600 ${css.getPropertyValue('--event-font').trim()} ${css.fontFamily}`
+      }
       setMetrics({
         height: grid.clientHeight,
+        width: grid.clientWidth,
+        compact: css.getPropertyValue('--compact').trim() === '1',
         event: parseFloat(css.getPropertyValue('--event-height')),
         header: parseFloat(css.getPropertyValue('--date-height')),
       })
@@ -137,12 +164,16 @@ export function CalendarView(props: CalendarProps) {
   const dayAt = useCallback((x: number, y: number) =>
     document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-date]')?.dataset.date, [])
 
+  const measureTitle = textMeasure.current
+  const wraps = (title: string) => metrics.compact && !!measureTitle
+    && measureTitle.measureText(title).width > metrics.width / 7 - 6
+
   const height = metrics.height / weeks.length
   const capacity = weekCapacity(height, metrics.event)
   return <section className={styles.calendar} style={{ '--line-step': `${deadlineLaneHeight}px` } as CSSProperties} aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}>
     <div className={styles.weekdays}>
       {Array.from({ length: 7 }, (_, index) => (index + props.weekStart) % 7).map(day =>
-        <div key={day} data-weekend={day === 0 || day === 6}>{labels[day]}<span>요일</span></div>)}
+        <div key={day} data-sunday={day === 0}>{labels[day]}<span>요일</span></div>)}
     </div>
     <div ref={gridRef} className={styles.grid} data-weeks={weeks.length} style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}
       onPointerDown={event => {
@@ -180,7 +211,7 @@ export function CalendarView(props: CalendarProps) {
         const slots = eventSlots(height, metrics.header, lanes, capacity.eventHeight)
         return <div className={styles.week} key={dates[0]} style={{ '--line-space': `${deadlineSpace(lanes)}px` } as CSSProperties}>
           {week.map((day, index) => <DayCell key={dates[index]} day={day} entries={sortEvents(byDay.get(dates[index]) ?? [])}
-            slots={slots} overflow={index === 6 && overflow.length ? overflow : undefined} props={props} />)}
+            slots={slots} compact={metrics.compact} wraps={wraps} overflow={index === 6 && overflow.length ? overflow : undefined} props={props} />)}
           <div className={styles.ranges} inert={props.picking || props.moving}>
             {visible.map(({ deadline, first, last, lane, starts, ends }) =>
               <button key={deadline.id} className={styles.range} data-starts={starts} data-ends={ends}
