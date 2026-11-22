@@ -82,6 +82,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
   const anchorRef = useRef<HTMLDivElement>(null)
+  const releasePoint = useRef<{ x: number; y: number }>(null)
   const sensors = useSensors(
     useSensor(CalendarMouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(CalendarTouchSensor, { activationConstraint: { delay: 420, tolerance: 10 } }),
@@ -160,11 +161,19 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     const outside = (event: PointerEvent) => {
       if (anchorRef.current && !anchorRef.current.contains(event.target as Node)) setAnchor(undefined)
     }
+    function captureRelease(event: MouseEvent | TouchEvent) {
+      const point = 'changedTouches' in event ? event.changedTouches[0] : event
+      if (point) releasePoint.current = { x: point.clientX, y: point.clientY }
+    }
     window.addEventListener('keydown', keydown)
     window.addEventListener('pointerdown', outside)
+    window.addEventListener('mouseup', captureRelease, true)
+    window.addEventListener('touchend', captureRelease, true)
     return () => {
       window.removeEventListener('keydown', keydown)
       window.removeEventListener('pointerdown', outside)
+      window.removeEventListener('mouseup', captureRelease, true)
+      window.removeEventListener('touchend', captureRelease, true)
     }
   }, [cancelRange])
 
@@ -210,8 +219,13 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }
 
   function drop(event: DragEndEvent) {
-    const date = event.over?.id
-    if (movingItem && typeof date === 'string' && date !== 'cancel') schedule(movingItem, date)
+    // Dnd-kit's last highlighted target can lag the actual release by one frame.
+    const point = releasePoint.current
+    const date = point
+      ? document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>('[data-date]')?.dataset.date
+      : event.over?.id
+    const item = todos.find(value => value.id === event.active.id)
+    if (item && typeof date === 'string' && date !== 'cancel') schedule(item, date)
     else cancelMove()
   }
 
@@ -289,7 +303,11 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const syncLabel = !logout ? '로컬 모드' : !online ? '오프라인' : syncError ? '동기화 대기 · 재시도' : pending ? '동기화 중' : '동기화 연결됨'
 
   return <DndContext sensors={sensors} collisionDetection={pointerWithin} autoScroll={false}
-    onDragStart={event => { setDragging(String(event.active.id)); setAnchor(undefined) }} onDragEnd={drop} onDragCancel={cancelMove}
+    onDragStart={event => {
+      releasePoint.current = null
+      setDragging(String(event.active.id))
+      setAnchor(undefined)
+    }} onDragEnd={drop} onDragCancel={cancelMove}
     accessibility={{ screenReaderInstructions: { draggable: '이동 핸들을 누르고 달력의 날짜를 선택하거나 원하는 날짜로 드래그하세요.' } }}>
     <main className={styles.app}>
       <header className={styles.topbar}>
@@ -361,7 +379,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       </div>}
       {dialog}
     </main>
-    <DragOverlay modifiers={[followPointer]} style={{ width: 'max-content', maxWidth: 180 }} dropAnimation={null}>{dragging && movingItem && <div className={styles.dragGhost} data-drag-preview style={tint(category(movingItem.category_id).color)}>
+    <DragOverlay modifiers={[followPointer]} style={{ width: 'max-content', maxWidth: 180, pointerEvents: 'none' }} dropAnimation={null}>{dragging && movingItem && <div className={styles.dragGhost} data-drag-preview style={tint(category(movingItem.category_id).color)}>
       {movingItem.title}
     </div>}</DragOverlay>
   </DndContext>

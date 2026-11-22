@@ -100,7 +100,7 @@ test('아홉 가지 달력 상태와 전체 화면 배치', async ({ page }, inf
   await expect(todo).toHaveCount(0)
   await capture('08-todo-drag')
   const cancel = await center(page.getByRole('button', { name: '이동 취소' }))
-  await page.mouse.move(cancel.x, cancel.y, { steps: 8 })
+  await page.mouse.move(cancel.x, cancel.y)
   await page.mouse.up()
   await expect(todo.getByRole('button', { name: '읽을 책 목록 정리', exact: true })).toBeVisible()
   if (viewport.width < 760) {
