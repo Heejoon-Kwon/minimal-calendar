@@ -33,3 +33,12 @@ export async function center(locator: ReturnType<Page['locator']>) {
   if (!box) throw new Error('Expected an element with a visible box')
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
 }
+
+export async function startMouseDrag(page: Page, source: ReturnType<Page['locator']>) {
+  await source.hover()
+  const { x, y } = await center(source)
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 8, y)
+  await expect(page.locator('[data-drag-preview]')).toBeVisible()
+}

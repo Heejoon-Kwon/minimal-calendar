@@ -10,6 +10,7 @@ test('이메일 로그인, 인증 유지, 캐시의 오프라인 편집과 재�
   const token = `${encoded({ alg: 'HS256', typ: 'JWT' })}.${encoded({ sub: user.id, exp: expiresAt, role: 'authenticated' })}.dGVzdA`
   const session = { user, access_token: token, refresh_token: 'test-refresh-token', token_type: 'bearer', expires_in: 3600, expires_at: expiresAt }
   const remote = new Map<string, Mutation>()
+  let acceptWrites = true
   await context.route('http://localhost:55334/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -24,6 +25,7 @@ test('이메일 로그인, 인증 유지, 캐시의 오프라인 편집과 재�
     if (request.headers().authorization !== `Bearer ${token}`) return route.fulfill({ status: 401, json: {}, headers })
     if (path === '/rest/v1/rpc/calendar_snapshot') return route.fulfill({ json: [...remote.values()], headers })
     if (path === '/rest/v1/rpc/apply_calendar_changes') {
+      if (!acceptWrites) return route.fulfill({ status: 503, json: {}, headers })
       const { changes } = request.postDataJSON() as { changes: Mutation[] }
       for (const change of changes) remote.set(`${change.collection}/${change.id}`, change)
       return route.fulfill({ body: 'null', contentType: 'application/json', headers })
@@ -50,12 +52,27 @@ test('이메일 로그인, 인증 유지, 캐시의 오프라인 편집과 재�
   await page.getByRole('button', { name: '미정 일정 목록' }).click()
   await page.getByRole('button', { name: '미정 일정 추가' }).click()
   await page.getByLabel('제목').fill('비행 중 추가한 일')
-  await page.getByRole('button', { name: '저장' }).click()
-  await expect(page.getByRole('button', { name: '비행 중 추가한 일', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  const saved = page.getByRole('button', { name: '비행 중 추가한 일', exact: true })
+  await expect(saved).toBeVisible()
+  await expect(page.getByRole('button', { name: '오프라인 · 1건 저장됨' })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('button', { name: '오프라인 · 1건 저장됨' })).toBeVisible()
+  await page.getByRole('button', { name: '미정 일정 목록' }).click()
+  await expect(saved).toBeVisible()
+  await saved.click()
+  await page.getByLabel('제목').fill('기내에서 수정한 일')
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  await expect(page.getByRole('button', { name: '오프라인 · 2건 저장됨' })).toBeVisible()
   expect([...remote.values()].filter(row => row.collection === 'items')).toHaveLength(0)
+
+  acceptWrites = false
   await context.setOffline(false)
+  await expect(page.getByRole('button', { name: '동기화 대기 · 2건' })).toBeVisible({ timeout: 25_000 })
+  acceptWrites = true
+  await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
   await expect(page.getByRole('button', { name: '동기화 연결됨' })).toBeVisible()
-  expect([...remote.values()].filter(row => row.collection === 'items')).toMatchObject([{ value: { title: '비행 중 추가한 일', date: null } }])
+  expect([...remote.values()].filter(row => row.collection === 'items')).toMatchObject([{ value: { title: '기내에서 수정한 일', date: null } }])
 
   await page.getByRole('button', { name: '설정', exact: true }).click()
   await page.getByRole('button', { name: '로그아웃' }).click()

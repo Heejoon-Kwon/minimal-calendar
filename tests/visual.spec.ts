@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { demoRecords } from '../src/data/demo'
-import { cell, center, emptyRecords, item, openApp, restore } from './browser-fixtures'
+import { cell, center, emptyRecords, item, openApp, restore, startMouseDrag } from './browser-fixtures'
 
 test('전체 화면 월간 달력, 스타일과 할 일 배치', async ({ page }, info) => {
   test.skip(info.project.name === 'chromium-touch')
@@ -83,10 +83,7 @@ test('전체 화면 월간 달력, 스타일과 할 일 배치', async ({ page }
   await expect(todo).toBeVisible()
   await expect(todo).toHaveAttribute('data-side', 'top')
   await capture('07-todo-top')
-  const handle = await center(todo.getByRole('button', { name: /읽을 책 목록 정리 달력으로 이동/ }))
-  await page.mouse.move(handle.x, handle.y)
-  await page.mouse.down()
-  await expect(page.locator('[data-drag-preview]')).toBeVisible()
+  await startMouseDrag(page, todo.getByRole('button', { name: /읽을 책 목록 정리 달력으로 이동/ }))
   const target = await center(today)
   await page.mouse.move(target.x, target.y, { steps: 8 })
   await expect(page.getByRole('button', { name: '이동 취소' })).toBeVisible()

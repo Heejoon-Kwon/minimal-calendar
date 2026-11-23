@@ -4,7 +4,7 @@ import {
 } from '@dnd-kit/core'
 import { CalendarRange, Check, ChevronLeft, ChevronRight, Plus, Settings2 } from 'lucide-react'
 import { dateKey, monthWeeks, moveEvent, moveMonth, occursOn, readableDate, sortEvents, sortTodos } from '../calendar'
-import { isPlannerTodo, put, type Change, type DateKey, type Item } from '../data/model'
+import { defaultBacklogShortcutKey, isPlannerTodo, put, type Change, type DateKey, type Item } from '../data/model'
 import type { Repository, RepositoryState } from '../data/repository'
 import { calendarDateAt, CalendarView, tint, type CategoryAnchor } from './calendar-view'
 import { Dialog } from './dialog'
@@ -12,7 +12,7 @@ import { ItemEditor } from './editors'
 import { ItemMenu } from './item-menu'
 import { Planner, plannerPlacementChanges, plannerDateAt } from './planner'
 import { SettingsPanel } from './settings'
-import { DropCancel, TodoPanel, TodoTrigger } from './todos'
+import { DropCancel, DropUnscheduled, isBacklogShortcut, TodoPanel, TodoTrigger } from './todos'
 import styles from './ui.module.css'
 
 type Overlay =
@@ -20,21 +20,11 @@ type Overlay =
   | { kind: 'item'; date: DateKey | null; itemId?: string; back?: DateKey; rangeEnd?: DateKey; rangeDraft?: boolean }
   | { kind: 'settings' }
 
-class CalendarMouseSensor extends MouseSensor {
+class ItemMouseSensor extends MouseSensor {
   static activators: typeof MouseSensor.activators = MouseSensor.activators.map(activator => ({
     ...activator,
     handler(event, options) {
-      return event.target instanceof Element && Boolean(event.target.closest('[data-event]'))
-        && activator.handler(event, options)
-    },
-  }))
-}
-
-class BacklogMouseSensor extends MouseSensor {
-  static activators: typeof MouseSensor.activators = MouseSensor.activators.map(activator => ({
-    ...activator,
-    handler(event, options) {
-      return event.target instanceof Element && Boolean(event.target.closest('[data-backlog-drag]'))
+      return event.button === 0 && event.target instanceof Element && Boolean(event.target.closest('[data-event], [data-backlog-drag], [data-planner-task]'))
         && activator.handler(event, options)
     },
   }))
@@ -44,7 +34,7 @@ class CalendarTouchSensor extends TouchSensor {
   static activators: typeof TouchSensor.activators = TouchSensor.activators.map(activator => ({
     ...activator,
     handler(event, options) {
-      return event.target instanceof Element && Boolean(event.target.closest('[data-backlog-drag], [data-event]'))
+      return event.target instanceof Element && Boolean(event.target.closest('[data-backlog-drag], [data-event], [data-planner-task]'))
         && activator.handler(event, options)
     },
   }))
@@ -89,6 +79,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
   const todoTriggerRef = useRef<HTMLButtonElement>(null)
+  const shortcutKey = state?.records.settings[0]?.backlog_shortcut_key ?? defaultBacklogShortcutKey
   const dragPoint = useRef<{ x: number; y: number }>(null)
   const releasePoint = useRef<{ x: number; y: number }>(null)
   const canScrollPlanner = useCallback((element: Element) => {
@@ -99,8 +90,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     return point.x >= left && point.x < right && point.y >= top && point.y < bottom
   }, [])
   const sensors = useSensors(
-    useSensor(CalendarMouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(BacklogMouseSensor, { activationConstraint: { delay: 260, tolerance: 10 } }),
+    useSensor(ItemMouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(CalendarTouchSensor, { activationConstraint: { delay: 420, tolerance: 10 } }),
   )
 
@@ -138,6 +128,8 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     const unwatch = repository.watch(onRefresh.current)
     window.addEventListener('online', connection)
     window.addEventListener('offline', connection)
+    window.addEventListener('pageshow', visible)
+    window.addEventListener('focus', visible)
     document.addEventListener('visibilitychange', visible)
     const retry = window.setInterval(visible, 30_000)
     void refresh()
@@ -147,6 +139,8 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       window.clearInterval(retry)
       window.removeEventListener('online', connection)
       window.removeEventListener('offline', connection)
+      window.removeEventListener('pageshow', visible)
+      window.removeEventListener('focus', visible)
       document.removeEventListener('visibilitychange', visible)
     }
   }, [repository])
@@ -182,7 +176,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       const target = event.target
       if (event.defaultPrevented || event.repeat || event.isComposing || overlay || anchor || dragging || clickMoving
         || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select')))) return
-      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === 'KeyJ') {
+      if (isBacklogShortcut(event, shortcutKey)) {
         event.preventDefault()
         setTodoOpen(open => !open)
         todoTriggerRef.current?.focus()
@@ -194,7 +188,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [anchor, clickMoving, dragging, overlay, todoOpen, view])
+  }, [anchor, clickMoving, dragging, overlay, shortcutKey, todoOpen, view])
 
   useEffect(() => {
     function captureMove(event: MouseEvent | TouchEvent) {
@@ -271,13 +265,14 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     // Dnd-kit's last highlighted target can lag the actual release by one frame.
     const point = releasePoint.current
     const id = event.active.data.current?.itemId ?? event.active.id
+    const unschedule = point ? !!document.elementFromPoint(point.x, point.y)?.closest('[data-unschedule]') : event.over?.id === 'unschedule'
     const task = plannerTasks.find(value => value.id === id)
     if (task) {
-      const date = point ? plannerDateAt(point.x, point.y) : event.over?.data.current?.date
-      if (typeof date === 'string') {
+      const date = unschedule ? null : point ? plannerDateAt(point.x, point.y) : event.over?.data.current?.date
+      if ((typeof date === 'string' || (date === null && task.date)) && date !== task.date) {
         void apply(plannerPlacementChanges(plannerTasks, task, date)).then(() => {
-          setPlannerOpen(false)
-          setLanding({ itemId: task.id, date, color: 'var(--ink)' })
+          setPlannerOpen(!date)
+          if (date) setLanding({ itemId: task.id, date, color: 'var(--ink)' })
         })
           .catch(() => undefined).finally(cancelMove)
       } else cancelMove()
@@ -285,7 +280,10 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     }
     const date = point ? calendarDateAt(point.x, point.y) : event.over?.id
     const item = items.find(value => value.id === id)
-    if (item && typeof date === 'string' && date !== 'cancel') schedule(item, date)
+    if (item?.date && unschedule) {
+      void apply([put('items', { ...item, date: null, end_date: undefined })])
+        .then(() => setTodoOpen(true)).catch(() => undefined).finally(cancelMove)
+    } else if (item && typeof date === 'string' && date !== 'cancel' && date !== 'unschedule') schedule(item, date)
     else cancelMove()
   }
 
@@ -328,7 +326,10 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     <SettingsPanel records={records} settings={{ ...settings, default_category_id: defaultCategory.id }} apply={apply} logout={logout} />
   </Dialog>
 
-  const syncLabel = !logout ? '로컬 모드' : !online ? '오프라인' : syncError ? '동기화 대기 · 재시도' : pending ? '동기화 중' : '동기화 연결됨'
+  const syncLabel = !logout ? '로컬 모드'
+    : !online ? (pending ? `오프라인 · ${pending}건 저장됨` : '오프라인')
+    : syncError ? (pending ? `동기화 대기 · ${pending}건` : '동기화 대기 · 재시도')
+    : pending ? '동기화 중' : '동기화 연결됨'
 
   return <DndContext sensors={sensors} collisionDetection={pointerWithin}
     autoScroll={view === 'planner' && { canScroll: canScrollPlanner, threshold: { x: 0.01, y: 0.07 }, acceleration: 7, interval: 12 }}
@@ -365,8 +366,10 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
             <button aria-pressed={view === 'calendar'} disabled={Boolean(movingItem || draggedTask)} onClick={() => { setPlannerOpen(false); setView('calendar') }}>월간</button>
             <button aria-pressed={view === 'planner'} disabled={Boolean(movingItem || draggedTask)} onClick={() => { setTodoOpen(false); setView('planner') }}>2주</button>
           </div>
-          <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout}
-            data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'}>{syncLabel}</button>
+          <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout} aria-label={syncLabel} title={syncLabel}
+            data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'} data-pending={Boolean(pending)}>
+            {logout && pending ? <>{!online ? '오프라인' : syncError ? '동기화 대기' : '동기화 중'}<small>{pending}</small></> : syncLabel}
+          </button>
           <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })} disabled={Boolean(movingItem || draggedTask)}><Settings2 size={18} /></button>
         </div>
       </header>
@@ -381,8 +384,11 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
         swipeMonth={!overlay && !anchor && !dragging && !clickMoving
           ? offset => setMonth(value => moveMonth(value, offset)) : undefined} />
       <footer className={styles.todoDock}>
-        {movingItem ? <DropCancel cancel={cancelMove} /> :
-          <TodoTrigger buttonRef={todoTriggerRef} count={todos.length} open={todoOpen}
+        {movingItem ? <div className={styles.dropActions}>
+          <DropCancel cancel={cancelMove} />
+          {dragging && movingItem.date && <DropUnscheduled label="미정 일정" />}
+        </div> :
+          <TodoTrigger buttonRef={todoTriggerRef} count={todos.length} open={todoOpen} shortcutKey={shortcutKey}
             toggle={() => setTodoOpen(open => !open)} reveal={() => setTodoOpen(true)} pull={setPull} />}
       </footer>
       <TodoPanel items={todos} category={category} open={todoOpen && !dragging && !clickMoving} side={todoSide} pull={pull}
@@ -396,7 +402,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
         }} quickCategory={setAnchor} move={item => setClickMoving(item.id)} />
       </> : <Planner today={today} weekStart={settings.week_start} events={items} tasks={plannerTasks}
         category={category} categoryId={defaultCategory.id} apply={apply} scrollRequest={scrollRequest}
-        open={plannerOpen} setOpen={setPlannerOpen} dragging={Boolean(draggedTask)} cancelDrag={cancelMove} />}
+        open={plannerOpen} setOpen={setPlannerOpen} draggedTask={draggedTask} cancelDrag={cancelMove} shortcutKey={shortcutKey} />}
       {landing && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
       {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
       {anchor && <ItemMenu x={anchor.x} y={anchor.y} label="카테고리 변경" close={() => setAnchor(undefined)} remove={() => {

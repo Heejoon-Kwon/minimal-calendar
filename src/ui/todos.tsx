@@ -29,12 +29,18 @@ function TodoRow({ item, category, edit, reorder, quickCategory, move, first, la
   </li>
 }
 
-export function TodoTrigger({ buttonRef, count, open, toggle, reveal, pull, label = '미정 일정' }: {
-  buttonRef: RefObject<HTMLButtonElement | null>; count: number; open: boolean; label?: string
+export function isBacklogShortcut(event: KeyboardEvent, key: string) {
+  return !event.repeat && !event.isComposing && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+    && event.code === `Key${key}`
+}
+
+export function TodoTrigger({ buttonRef, count, open, toggle, reveal, pull, shortcutKey, label = '미정 일정' }: {
+  buttonRef: RefObject<HTMLButtonElement | null>; count: number; open: boolean; shortcutKey: string; label?: string
   toggle: () => void; reveal: () => void; pull: (progress: number) => void
 }) {
   const start = useRef<{ id: number; x: number; y: number }>(null)
   const swiped = useRef(false)
+  const shortcut = `Alt+${shortcutKey}`
 
   function reset() {
     start.current = null
@@ -73,14 +79,14 @@ export function TodoTrigger({ buttonRef, count, open, toggle, reveal, pull, labe
       if (event.target === event.currentTarget) reset()
     }}>
     <button ref={buttonRef} className={styles.todoFab} aria-label={`${label} 목록`} aria-controls="todo-panel"
-      aria-expanded={open} aria-keyshortcuts="Alt+J" title={`${label} 목록 (Alt+J)`}
+      aria-expanded={open} aria-keyshortcuts={shortcut} title={`${label} 목록 (${shortcut})`}
       onClick={event => {
         if (swiped.current && event.detail > 0) return
         toggle()
       }}>
       <span className={styles.todoGrip} aria-hidden="true" />
       <ListTodo size={15} /><span>{label}</span>{count > 0 && <small>{count}</small>}
-      <kbd aria-hidden="true">Alt+J</kbd>
+      <kbd aria-hidden="true">{shortcut}</kbd>
     </button>
   </div>
 }
@@ -119,4 +125,11 @@ export function DropCancel({ cancel }: { cancel: () => void }) {
   return <button ref={setNodeRef} className={styles.dropCancel} data-over={isOver} onClick={cancel}>
     <X size={15} /> 이동 취소
   </button>
+}
+
+export function DropUnscheduled({ label }: { label: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'unschedule' })
+  return <div ref={setNodeRef} data-unschedule data-over={isOver} className={styles.dropUnscheduled}>
+    <ListTodo size={15} /> {label} 목록에 놓기
+  </div>
 }

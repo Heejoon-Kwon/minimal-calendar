@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Download, GripVertical, Plus, Trash2, Upload } from 'lucide-react'
 import { decodeBackup, encodeBackup, replaceChanges } from '../data/backup'
-import { calendarFontSizes, entity, put, todoFontSizes, type Appearance, type Category, type Change, type Records, type Settings, type WeekStart } from '../data/model'
+import { backlogShortcutKeys, calendarFontSizes, defaultBacklogShortcutKey, entity, put, todoFontSizes, type Appearance, type Category, type Change, type Records, type Settings, type WeekStart } from '../data/model'
 import { CategorySelect } from './editors'
 import styles from './ui.module.css'
 
@@ -102,6 +102,10 @@ export function SettingsPanel({ records, settings, apply, logout }: {
     </div>
     <label>주 시작 요일<select value={settings.week_start} onChange={event => save([put('settings', { ...settings, week_start: Number(event.target.value) as WeekStart })])}>
       <option value={1}>월요일</option><option value={0}>일요일</option>
+    </select></label>
+    <label>미정 목록 단축키<select value={settings.backlog_shortcut_key ?? defaultBacklogShortcutKey}
+      onChange={event => save([put('settings', { ...settings, backlog_shortcut_key: event.target.value })])}>
+      {backlogShortcutKeys.map(key => <option key={key} value={key}>Alt+{key}</option>)}
     </select></label>
     <section><h3>카테고리</h3>
       <label>기본 카테고리<CategorySelect categories={categories} value={settings.default_category_id}

@@ -5,6 +5,8 @@ export type CalendarStyle = typeof customStyles[number]
 export type Appearance = Theme | CalendarStyle
 export const calendarFontSizes = [8, 9, 10, 11, 12, 13, 14] as const
 export const todoFontSizes = [8, 9, 10, 11, 12, 14, 16, 18] as const
+export const backlogShortcutKeys = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+export const defaultBacklogShortcutKey = 'E'
 export type WeekStart = 0 | 1
 
 export interface Entity {
@@ -43,6 +45,7 @@ export interface Settings extends Entity {
   calendar_style?: CalendarStyle
   calendar_font_size?: typeof calendarFontSizes[number]
   todo_font_size?: typeof todoFontSizes[number]
+  backlog_shortcut_key?: string
   category_order?: string[]
 }
 

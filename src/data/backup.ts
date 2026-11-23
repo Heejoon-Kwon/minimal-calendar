@@ -1,5 +1,5 @@
 import { compareTimes, dateKey, fromKey } from '../calendar'
-import { calendarFontSizes, collectionNames, customStyles, todoFontSizes, type Change, type Records } from './model'
+import { backlogShortcutKeys, calendarFontSizes, collectionNames, customStyles, todoFontSizes, type Change, type Records } from './model'
 import { recordsToChanges } from './repository'
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -34,6 +34,7 @@ export function decodeBackup(raw: string): Records {
     || (settings[0].calendar_style !== undefined && !customStyles.includes(settings[0].calendar_style))
     || (settings[0].calendar_font_size !== undefined && !calendarFontSizes.includes(settings[0].calendar_font_size))
     || (settings[0].todo_font_size !== undefined && !todoFontSizes.includes(settings[0].todo_font_size))
+    || (settings[0].backlog_shortcut_key !== undefined && !backlogShortcutKeys.includes(settings[0].backlog_shortcut_key))
     || (settings[0].category_order !== undefined && (!Array.isArray(settings[0].category_order)
       || !settings[0].category_order.every(nonempty)
       || new Set(settings[0].category_order).size !== settings[0].category_order.length))
@@ -50,9 +51,9 @@ export function decodeBackup(raw: string): Records {
   return {
     categories: categories.map(({ id, created_at, updated_at, name, color }) => ({ id, created_at, updated_at, name, color })),
     settings: settings.map(({ id, created_at, updated_at, theme, week_start, default_category_id,
-      calendar_style, calendar_font_size, todo_font_size, category_order }) => ({
+      calendar_style, calendar_font_size, todo_font_size, backlog_shortcut_key, category_order }) => ({
       id, created_at, updated_at, theme, week_start, default_category_id,
-      calendar_style, calendar_font_size, todo_font_size, category_order: category_order?.filter(id => ids.has(id)),
+      calendar_style, calendar_font_size, todo_font_size, backlog_shortcut_key, category_order: category_order?.filter(id => ids.has(id)),
     })),
     items: items.map(({ id, created_at, updated_at, title, date, end_date, planner_todo, start_time, end_time, category_id, completed, sort_order }) =>
       ({ id, created_at, updated_at, title, date, end_date, planner_todo, start_time, end_time, category_id, completed, sort_order })),

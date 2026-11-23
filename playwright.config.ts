@@ -13,6 +13,7 @@ export default defineConfig({
     { name: 'iphone-375', use: { browserName: 'webkit', viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 } },
     { name: 'desktop-1440', use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } } },
     { name: 'supabase-fixture', testIgnore: [], testMatch: '**/auth.spec.ts', use: { browserName: 'chromium' } },
+    { name: 'supabase-fixture-mobile', testIgnore: [], testMatch: '**/auth.spec.ts', use: { browserName: 'chromium', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
     { name: 'chromium-touch', testIgnore: [], testMatch: '**/touch.spec.ts', use: { browserName: 'chromium', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
   ],
   webServer: [{

@@ -50,8 +50,9 @@
   font-size: var(--todo-font, 14px);
 }
 .taskText:hover { text-decoration: underline; }
-.taskText[data-backlog-drag] { cursor: grab; }
-.taskText[data-backlog-drag]:active { cursor: grabbing; }
+.taskText[data-planner-task] { cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.taskText[data-planner-task]:active { cursor: grabbing; }
+.taskText[data-drag-source='true'] { opacity: .4; }
 .taskRow[data-done='true'] .taskText { color: var(--faint); text-decoration: line-through; }
 .taskRow[data-moving='true'] { border-radius: 4px; outline: 1px dashed var(--faint); padding-inline: 4px; }
 .taskTools { display: flex; margin-inline-start: auto; }

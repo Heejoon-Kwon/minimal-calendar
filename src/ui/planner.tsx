@@ -5,7 +5,7 @@ import { fromKey, occursOn, readableDate, sortEvents, sortTodos, twoWeekDates } 
 import { entity, put, type Change, type DateKey, type Item, type PlannerTodo, type WeekStart } from '../data/model'
 import { tint, type CategoryLookup } from './calendar-view'
 import { ItemMenu } from './item-menu'
-import { DropCancel, TodoDrawer, TodoTrigger } from './todos'
+import { DropCancel, DropUnscheduled, isBacklogShortcut, TodoDrawer, TodoTrigger } from './todos'
 import shared from './ui.module.css'
 import styles from './planner.module.css'
 
@@ -36,11 +36,11 @@ function PlannerDay({ date, today, weekend, todayElement, children }: {
     className={styles.day} aria-label={readableDate(date)}>{children}</section>
 }
 
-function TaskTitle({ task, label, click, menu }: {
-  task: PlannerTodo; label: string; click: MouseEventHandler<HTMLButtonElement>; menu: (x: number, y: number) => void
+function TaskTitle({ task, label, click, menu, picking }: {
+  task: PlannerTodo; label: string; click: MouseEventHandler<HTMLButtonElement>; menu: (x: number, y: number) => void; picking: boolean
 }) {
-  const { listeners, setNodeRef } = useDraggable({ id: task.id, data: { itemId: task.id }, disabled: !!task.date })
-  return <button ref={setNodeRef} {...listeners} className={styles.taskText} data-backlog-drag={task.date ? undefined : ''}
+  const { listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, data: { itemId: task.id }, disabled: picking })
+  return <button ref={setNodeRef} {...listeners} className={styles.taskText} data-planner-task={task.id} data-drag-source={isDragging}
     aria-label={label} onClick={click} onKeyDown={event => {
       if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
       event.preventDefault()
@@ -82,11 +82,12 @@ function TaskInput({ label, value, submit, cancel, remove }: {
   </form>
 }
 
-export function Planner({ today, weekStart, events, tasks, category, categoryId, apply, scrollRequest, open, setOpen, dragging, cancelDrag }: {
+export function Planner({ today, weekStart, events, tasks, category, categoryId, apply, scrollRequest, open, setOpen, draggedTask, cancelDrag, shortcutKey }: {
   today: DateKey; weekStart: WeekStart; events: Item[]; tasks: PlannerTodo[]; category: CategoryLookup; categoryId: string
   apply: (changes: Change[]) => Promise<void>; scrollRequest: number; open: boolean; setOpen: Dispatch<SetStateAction<boolean>>
-  dragging: boolean; cancelDrag: () => void
+  draggedTask?: PlannerTodo; cancelDrag: () => void; shortcutKey: string
 }) {
+  const dragging = Boolean(draggedTask)
   const [pull, setPull] = useState(0)
   const [moving, setMoving] = useState<string>()
   const [adding, setAdding] = useState<DateKey | 'unscheduled'>()
@@ -113,8 +114,8 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
         if (open) { setOpen(false); trigger.current?.focus() }
         return
       }
-      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === 'KeyJ'
-        && !event.repeat && !moving && !(event.target instanceof HTMLElement && event.target.closest('input,textarea,select'))) {
+      if (isBacklogShortcut(event, shortcutKey) && !moving && !menu
+        && !(event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input,textarea,select')))) {
         event.preventDefault()
         setOpen(value => !value)
         trigger.current?.focus()
@@ -122,7 +123,7 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [adding, dragging, editing, menu, moving, open, setOpen])
+  }, [adding, dragging, editing, menu, moving, open, setOpen, shortcutKey])
 
   const listFor = (date: DateKey | null) => sortTodos(tasks.filter(task => task.date === date)
     .map(task => task.id in completion ? { ...task, completed: completion[task.id] } : task))
@@ -168,7 +169,7 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
             <input type="checkbox" checked={task.completed} aria-label={`${task.title} 완료`} disabled={!!moving || task.id in completion}
               onChange={event => toggleTask(task, event.target.checked)} />
             <TaskTitle task={task} label={pendingTask && moving !== task.id ? (pendingTask.date === date ? `${task.title} 앞에 놓기` : `${task.title} 날짜로 이동`) : task.title}
-              menu={showMenu} click={event => {
+              menu={showMenu} picking={!!pendingTask} click={event => {
                 if (pendingTask) place(pendingTask, date, pendingTask.date === date ? task.id : undefined)
                 else if (!date && event.detail !== 0) { setAdding(undefined); setEditing(task.id) }
                 else { setMoving(task.id); setAdding(undefined); if (!date) setOpen(false) }
@@ -221,10 +222,13 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
       </section>)}
     </section>
     <footer className={shared.todoDock}>
-      {dragging ? <DropCancel cancel={cancelDrag} /> : pendingTask ? <div className={styles.moving} role="status"><span>{pendingTask.title}</span>
+      {dragging ? <div className={shared.dropActions}>
+        <DropCancel cancel={cancelDrag} />
+        {draggedTask?.date && <DropUnscheduled label="미정 할 일" />}
+      </div> : pendingTask ? <div className={styles.moving} role="status"><span>{pendingTask.title}</span>
         <button className={shared.secondary} onClick={() => place(pendingTask, null)}>날짜 미정</button>
         <button className={shared.secondary} onClick={() => setMoving(undefined)}>이동 취소</button>
-      </div> : <TodoTrigger buttonRef={trigger} count={listFor(null).length} open={open} label="미정 할 일"
+      </div> : <TodoTrigger buttonRef={trigger} count={listFor(null).length} open={open} label="미정 할 일" shortcutKey={shortcutKey}
         toggle={() => setOpen(value => !value)} reveal={() => setOpen(true)} pull={setPull} />}
     </footer>
     <TodoDrawer open={open && !dragging} side="bottom" pull={pull} label="미정 할 일" count={listFor(null).length}

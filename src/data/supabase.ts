@@ -32,15 +32,22 @@ export function offlineUserId(): string | undefined {
   }
 }
 
+async function calendarRequest<T>(send: (signal: AbortSignal) => PromiseLike<T>): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15_000)
+  try { return await send(controller.signal) }
+  finally { clearTimeout(timer) }
+}
+
 export function supabaseRemote(client: SupabaseClient, userId: string): Remote {
   return {
     async read() {
-      const { data, error } = await client.rpc('calendar_snapshot')
+      const { data, error } = await calendarRequest(signal => client.rpc('calendar_snapshot').abortSignal(signal))
       if (error) throw error
       return (data ?? []) as Mutation[]
     },
     async apply(changes) {
-      const { error } = await client.rpc('apply_calendar_changes', { changes })
+      const { error } = await calendarRequest(signal => client.rpc('apply_calendar_changes', { changes }).abortSignal(signal))
       if (error) throw error
     },
     watch(listener) {

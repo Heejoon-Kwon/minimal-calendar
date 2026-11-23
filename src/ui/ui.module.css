@@ -117,6 +117,7 @@
 .status::before { content: ''; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--chrome-muted); }
 .status[data-state='ready']::before { background: var(--ready); }
 .status[data-state='waiting']::before { background: var(--waiting); }
+.status small { flex: none; font: inherit; font-weight: 750; }
 .screenReader { position: absolute; inset: auto; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .icon { width: 36px; height: 36px; display: grid; flex: none; place-items: center; padding: 0; border-radius: 7px; }
 .icon:hover, .rowIcon:hover, .moveHandle:hover, .today:hover, .secondary:hover { background: var(--hover); }
@@ -205,7 +206,7 @@
 .eventTitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .eventTime { flex: none; opacity: .85; font-size: min(11px, var(--event-font)); font-variant-numeric: tabular-nums; }
 .todoDock { display: grid; place-items: stretch center; min-height: 0; }
-.todoFab, .dropCancel {
+.todoFab, .dropCancel, .dropUnscheduled {
   display: flex; align-items: center; justify-content: center; gap: 5px;
   height: 100%; min-width: 100px; padding: 4px 12px; border-radius: 8px;
   font-size: 12px; font-weight: 710; white-space: nowrap;
@@ -230,6 +231,9 @@
 }
 .dropCancel { background: #852531; color: #fff; border: 1px solid #a7545d; transition: background-color 120ms ease; }
 .dropCancel[data-over='true'] { background: #a92d3d; }
+.dropActions { display: flex; gap: 6px; min-width: 0; }
+.dropUnscheduled { background: var(--surface); border: 1px dashed var(--faint); }
+.dropUnscheduled[data-over='true'] { border-color: var(--ink); background: var(--hover); }
 .placementStatus, .actionError {
   position: absolute; z-index: 3; inset: auto auto calc(var(--bottom-inset) + var(--dock-height) + var(--calendar-gap) + 8px) 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 8px; white-space: nowrap;
@@ -411,6 +415,7 @@
 .dayButton { -webkit-touch-callout: none; user-select: none; }
 @media (max-width: 420px) {
   .masthead .status { font-size: 10px; max-width: 58px; }
+  .masthead .status[data-pending='true'] { max-width: 88px; }
   .viewSwitch button { padding-inline: 5px; }
 }
 @media (prefers-reduced-motion: reduce) {

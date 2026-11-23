@@ -132,7 +132,7 @@ export function CalendarView(props: CalendarProps) {
   const [metrics, setMetrics] = useState({ height: 0, width: 0, event: 19, header: 25, compact: false })
   const textMeasure = useRef<CanvasRenderingContext2D | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
-  const gesture = useRef<{ id: number; x: number; y: number; monthAllowed: boolean }>(null)
+  const gesture = useRef<{ id: number; x: number; y: number; monthAllowed: boolean; mouseRangeStart?: DateKey }>(null)
   const [selection, setSelection] = useState<{ start: DateKey; end: DateKey }>()
   const selecting = useRef<DateKey>(undefined)
   const rangeTimer = useRef<number>(undefined)
@@ -221,8 +221,9 @@ export function CalendarView(props: CalendarProps) {
       const id = event.pointerId
       gesture.current = {
         id, x: event.clientX, y: event.clientY, monthAllowed: Boolean(props.swipeMonth && event.pointerType !== 'mouse'),
+        mouseRangeStart: event.pointerType === 'mouse' ? rangeStart : undefined,
       }
-      if (rangeStart) {
+      if (rangeStart && event.pointerType !== 'mouse') {
         const owner = event.currentTarget
         rangeTimer.current = window.setTimeout(() => {
           selecting.current = rangeStart
@@ -233,7 +234,13 @@ export function CalendarView(props: CalendarProps) {
       }
     }}
     onPointerMove={event => {
-      trackMovement(event)
+      const gestureStart = trackMovement(event)
+      if (gestureStart?.mouseRangeStart && !selecting.current && event.buttons === 1
+        && Math.hypot(event.clientX - gestureStart.x, event.clientY - gestureStart.y) > 5) {
+        selecting.current = gestureStart.mouseRangeStart
+        suppressClick.current = true
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
       const start = selecting.current
       if (!start || gesture.current?.id !== event.pointerId) return
       const date = calendarDateAt(event.clientX, event.clientY)
@@ -243,10 +250,10 @@ export function CalendarView(props: CalendarProps) {
       const start = trackMovement(event)
       if (!start) return
       gesture.current = null
-      const rangeStart = selecting.current
+      const rangeStart = selecting.current ?? start.mouseRangeStart
+      const end = rangeStart && calendarDateAt(event.clientX, event.clientY)
       clearRange()
-      if (rangeStart) {
-        const end = calendarDateAt(event.clientX, event.clientY)
+      if (rangeStart && suppressClick.current) {
         if (end === rangeStart) props.openDate(end)
         else if (end) props.openRange(rangeStart < end ? rangeStart : end, rangeStart < end ? end : rangeStart)
         return
