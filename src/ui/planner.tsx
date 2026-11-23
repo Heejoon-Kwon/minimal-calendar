@@ -196,7 +196,7 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
   }
 
   return <>
-    <section className={styles.planner} aria-label="2주 계획">
+    <section className={styles.planner} aria-label="2주 계획" data-planner-scroll>
       {weeks.map((week, index) => <section key={week[0]} className={styles.week} aria-labelledby={`week-${index}`}>
         <div className={styles.weekHeading}>
           <h2 id={`week-${index}`}>{index === 0 ? '이번 주' : '다음 주'}</h2>

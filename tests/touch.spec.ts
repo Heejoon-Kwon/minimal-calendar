@@ -102,6 +102,7 @@ test('미정 할 일을 손가락으로 옮기고 놓기 전에는 날짜를 변
   const task = page.getByRole('button', { name: '터치로 배정', exact: true })
   const first = page.locator('[data-planner-date="2026-08-17"]')
   const second = page.locator('[data-planner-date="2026-08-18"]')
+  const planner = page.locator('[data-planner-scroll]')
   const cdp = await context.newCDPSession(page)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [await center(task)] })
   await expect(page.locator('[data-drag-preview]')).toHaveText('터치로 배정')
@@ -109,6 +110,7 @@ test('미정 할 일을 손가락으로 옮기고 놓기 전에는 날짜를 변
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [await center(cancel)] })
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await expect(task).toBeVisible()
+  expect(await planner.evaluate(element => element.scrollTop)).toBe(0)
 
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [await center(task)] })
   await expect(page.locator('[data-drag-preview]')).toHaveText('터치로 배정')

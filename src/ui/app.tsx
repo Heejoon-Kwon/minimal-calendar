@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent, type Modifier,
 } from '@dnd-kit/core'
@@ -89,7 +89,15 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
   const todoTriggerRef = useRef<HTMLButtonElement>(null)
+  const dragPoint = useRef<{ x: number; y: number }>(null)
   const releasePoint = useRef<{ x: number; y: number }>(null)
+  const canScrollPlanner = useCallback((element: Element) => {
+    // The cancel dock is outside the scroll area, even when a date is still highlighted.
+    const point = dragPoint.current
+    if (!point || !element.hasAttribute('data-planner-scroll')) return false
+    const { top, left, right, bottom } = element.getBoundingClientRect()
+    return point.x >= left && point.x < right && point.y >= top && point.y < bottom
+  }, [])
   const sensors = useSensors(
     useSensor(CalendarMouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(BacklogMouseSensor, { activationConstraint: { delay: 260, tolerance: 10 } }),
@@ -189,17 +197,27 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }, [anchor, clickMoving, dragging, overlay, todoOpen, view])
 
   useEffect(() => {
+    function captureMove(event: MouseEvent | TouchEvent) {
+      const point = 'changedTouches' in event ? event.changedTouches[0] : event
+      if (point) dragPoint.current = { x: point.clientX, y: point.clientY }
+    }
     function captureRelease(event: MouseEvent | TouchEvent) {
       const point = 'changedTouches' in event ? event.changedTouches[0] : event
       if (point) releasePoint.current = { x: point.clientX, y: point.clientY }
     }
+    if (view === 'planner') {
+      window.addEventListener('mousemove', captureMove, true)
+      window.addEventListener('touchmove', captureMove, { capture: true, passive: true })
+    }
     window.addEventListener('mouseup', captureRelease, true)
     window.addEventListener('touchend', captureRelease, true)
     return () => {
+      window.removeEventListener('mousemove', captureMove, true)
+      window.removeEventListener('touchmove', captureMove, true)
       window.removeEventListener('mouseup', captureRelease, true)
       window.removeEventListener('touchend', captureRelease, true)
     }
-  }, [])
+  }, [view])
 
   useEffect(() => {
     if (!landing) return
@@ -312,8 +330,10 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
 
   const syncLabel = !logout ? '로컬 모드' : !online ? '오프라인' : syncError ? '동기화 대기 · 재시도' : pending ? '동기화 중' : '동기화 연결됨'
 
-  return <DndContext sensors={sensors} collisionDetection={pointerWithin} autoScroll={view === 'planner'}
+  return <DndContext sensors={sensors} collisionDetection={pointerWithin}
+    autoScroll={view === 'planner' && { canScroll: canScrollPlanner, threshold: { x: 0.01, y: 0.07 }, acceleration: 7, interval: 12 }}
     onDragStart={event => {
+      dragPoint.current = null
       releasePoint.current = null
       setDragging(String(event.active.data.current?.itemId ?? event.active.id))
       setAnchor(undefined)
