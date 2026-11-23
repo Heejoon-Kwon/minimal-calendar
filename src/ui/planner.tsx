@@ -1,11 +1,53 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type MouseEventHandler, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import { fromKey, occursOn, readableDate, sortEvents, sortTodos, twoWeekDates } from '../calendar'
 import { entity, put, type Change, type DateKey, type Item, type PlannerTodo, type WeekStart } from '../data/model'
 import { tint, type CategoryLookup } from './calendar-view'
-import { TodoDrawer, TodoTrigger } from './todos'
+import { ItemMenu } from './item-menu'
+import { DropCancel, TodoDrawer, TodoTrigger } from './todos'
 import shared from './ui.module.css'
 import styles from './planner.module.css'
+
+export function plannerDateAt(x: number, y: number): DateKey | undefined {
+  for (const element of document.elementsFromPoint(x, y)) {
+    const date = element.closest<HTMLElement>('[data-planner-date]')?.dataset.plannerDate
+    if (date) return date
+  }
+}
+
+export function plannerPlacementChanges(tasks: PlannerTodo[], task: PlannerTodo, date: DateKey | null, position?: string): Change[] {
+  const list = sortTodos(tasks.filter(candidate => candidate.date === date && candidate.id !== task.id))
+  const index = position ? list.findIndex(candidate => candidate.id === position) : list.length
+  list.splice(index < 0 ? list.length : index, 0, { ...task, date })
+  return list.flatMap((value, index) =>
+    value.id === task.id || value.sort_order !== index ? [put('items', { ...value, sort_order: index })] : [])
+}
+
+function PlannerDay({ date, today, weekend, todayElement, children }: {
+  date: DateKey; today: boolean; weekend: boolean; todayElement: RefObject<HTMLElement | null>; children: ReactNode
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: `planner:${date}`, data: { date } })
+  const ref = useCallback((element: HTMLElement | null) => {
+    setNodeRef(element)
+    if (today) todayElement.current = element
+  }, [setNodeRef, today, todayElement])
+  return <section ref={ref} data-planner-date={date} data-today={today} data-weekend={weekend} data-over={isOver}
+    className={styles.day} aria-label={readableDate(date)}>{children}</section>
+}
+
+function TaskTitle({ task, label, click, menu }: {
+  task: PlannerTodo; label: string; click: MouseEventHandler<HTMLButtonElement>; menu: (x: number, y: number) => void
+}) {
+  const { listeners, setNodeRef } = useDraggable({ id: task.id, data: { itemId: task.id }, disabled: !!task.date })
+  return <button ref={setNodeRef} {...listeners} className={styles.taskText} data-backlog-drag={task.date ? undefined : ''}
+    aria-label={label} onClick={click} onKeyDown={event => {
+      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+      event.preventDefault()
+      const rect = event.currentTarget.getBoundingClientRect()
+      menu(rect.left, rect.bottom)
+    }}>{task.title}</button>
+}
 
 function TaskInput({ label, value, submit, cancel, remove }: {
   label: string; value?: string; submit: (text: string) => Promise<void>; cancel: () => void; remove?: () => void
@@ -40,15 +82,16 @@ function TaskInput({ label, value, submit, cancel, remove }: {
   </form>
 }
 
-export function Planner({ today, weekStart, events, tasks, category, categoryId, apply, scrollRequest }: {
+export function Planner({ today, weekStart, events, tasks, category, categoryId, apply, scrollRequest, open, setOpen, dragging, cancelDrag }: {
   today: DateKey; weekStart: WeekStart; events: Item[]; tasks: PlannerTodo[]; category: CategoryLookup; categoryId: string
-  apply: (changes: Change[]) => Promise<void>; scrollRequest: number
+  apply: (changes: Change[]) => Promise<void>; scrollRequest: number; open: boolean; setOpen: Dispatch<SetStateAction<boolean>>
+  dragging: boolean; cancelDrag: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const [pull, setPull] = useState(0)
   const [moving, setMoving] = useState<string>()
   const [adding, setAdding] = useState<DateKey | 'unscheduled'>()
   const [editing, setEditing] = useState<string>()
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number }>()
   const [completion, setCompletion] = useState<Record<string, boolean>>({})
   const trigger = useRef<HTMLButtonElement>(null)
   const todayElement = useRef<HTMLElement>(null)
@@ -61,8 +104,9 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
-      if (event.defaultPrevented || (event.target instanceof HTMLElement && event.target.closest('dialog'))) return
+      if (event.defaultPrevented || dragging || (event.target instanceof HTMLElement && event.target.closest('dialog'))) return
       if (event.key === 'Escape') {
+        if (menu) { setMenu(undefined); return }
         if (moving) { setMoving(undefined); return }
         if (editing) { setEditing(undefined); return }
         if (adding) { setAdding(undefined); return }
@@ -78,7 +122,7 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [adding, editing, moving, open])
+  }, [adding, dragging, editing, menu, moving, open, setOpen])
 
   const listFor = (date: DateKey | null) => sortTodos(tasks.filter(task => task.date === date)
     .map(task => task.id in completion ? { ...task, completed: completion[task.id] } : task))
@@ -104,29 +148,31 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
 
   function place(task: PlannerTodo, date: DateKey | null, position?: string) {
     if (position === task.id) { setMoving(undefined); return }
-    const list = listFor(date).filter(candidate => candidate.id !== task.id)
-    const index = position ? list.findIndex(candidate => candidate.id === position) : list.length
-    list.splice(index < 0 ? list.length : index, 0, { ...task, date })
-    const changes = list.flatMap((value, index) =>
-      value.id === task.id || value.sort_order !== index ? [put('items', { ...value, sort_order: index })] : [])
+    const changes = plannerPlacementChanges(listFor(date), task, date, position)
     void apply(changes).then(() => setMoving(undefined)).catch(() => undefined)
   }
 
   function rows(date: DateKey | null) {
     const list = listFor(date)
     return <ul className={styles.taskList}>{list.map((task, index) => {
-      return <li key={task.id} data-done={task.completed} data-moving={task.id === moving} className={styles.taskRow}>
+      const showMenu = (x: number, y: number) => { if (!moving && !dragging) setMenu({ id: task.id, x, y }) }
+      return <li key={task.id} data-done={task.completed} data-moving={task.id === moving} className={styles.taskRow}
+        onContextMenu={event => {
+          event.preventDefault()
+          if (!(event.nativeEvent instanceof PointerEvent && event.nativeEvent.pointerType === 'touch')) showMenu(event.clientX, event.clientY)
+        }}>
         {editing === task.id ? <TaskInput label="할 일 편집" value={task.title} cancel={() => setEditing(undefined)}
           submit={async title => { await apply([put('items', { ...task, title })]); setEditing(undefined) }}
           remove={() => { void apply([{ collection: 'items', id: task.id, value: null }]).then(() => setEditing(undefined)).catch(() => undefined) }} />
           : <>
             <input type="checkbox" checked={task.completed} aria-label={`${task.title} 완료`} disabled={!!moving || task.id in completion}
               onChange={event => toggleTask(task, event.target.checked)} />
-            <button className={styles.taskText} aria-label={pendingTask && moving !== task.id ? (pendingTask.date === date ? `${task.title} 앞에 놓기` : `${task.title} 날짜로 이동`) : task.title}
-              onClick={() => {
+            <TaskTitle task={task} label={pendingTask && moving !== task.id ? (pendingTask.date === date ? `${task.title} 앞에 놓기` : `${task.title} 날짜로 이동`) : task.title}
+              menu={showMenu} click={event => {
                 if (pendingTask) place(pendingTask, date, pendingTask.date === date ? task.id : undefined)
+                else if (!date && event.detail !== 0) { setAdding(undefined); setEditing(task.id) }
                 else { setMoving(task.id); setAdding(undefined); if (!date) setOpen(false) }
-              }}>{task.title}</button>
+              }} />
             {!moving && <div className={styles.taskTools}>
               <button className={shared.rowIcon} disabled={index === 0} aria-label={`${task.title} 위로`}
                 onClick={() => place(task, date, list[index - 1].id)}><ArrowUp size={13} /></button>
@@ -159,8 +205,8 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
         <div className={styles.days}>{week.map(date => {
           const day = fromKey(date)
           const agenda = sortEvents(events.filter(item => occursOn(item, date)))
-          return <section key={date} data-planner-date={date} data-today={date === today} className={styles.day}
-            ref={date === today ? todayElement : undefined} aria-label={readableDate(date)}>
+          return <PlannerDay key={date} date={date} today={date === today} weekend={day.getDay() === 0 || day.getDay() === 6}
+            todayElement={todayElement}>
             <h3>{pendingTask
               ? <button className={styles.dateTarget} aria-label={`${readableDate(date)}에 놓기`} onClick={() => place(pendingTask, date)}>{day.getDate()}일</button>
               : <strong>{day.getDate()}</strong>} {['일', '월', '화', '수', '목', '금', '토'][day.getDay()]}</h3>
@@ -170,21 +216,27 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
               </div>)}
             </div>
             <div className={styles.dailyTasks}>{rows(date)}{entry(date)}</div>
-          </section>
+          </PlannerDay>
         })}</div>
       </section>)}
     </section>
     <footer className={shared.todoDock}>
-      {pendingTask ? <div className={styles.moving} role="status"><span>{pendingTask.title}</span>
+      {dragging ? <DropCancel cancel={cancelDrag} /> : pendingTask ? <div className={styles.moving} role="status"><span>{pendingTask.title}</span>
         <button className={shared.secondary} onClick={() => place(pendingTask, null)}>날짜 미정</button>
         <button className={shared.secondary} onClick={() => setMoving(undefined)}>이동 취소</button>
       </div> : <TodoTrigger buttonRef={trigger} count={listFor(null).length} open={open} label="미정 할 일"
         toggle={() => setOpen(value => !value)} reveal={() => setOpen(true)} pull={setPull} />}
     </footer>
-    <TodoDrawer open={open} side="bottom" pull={pull} label="미정 할 일" count={listFor(null).length}
+    <TodoDrawer open={open && !dragging} side="bottom" pull={pull} label="미정 할 일" count={listFor(null).length}
       close={() => { setOpen(false); trigger.current?.focus() }}>
       <div className={shared.todoBody}>{rows(null)}</div>
       <div className={styles.drawerEntry}>{entry(null)}</div>
     </TodoDrawer>
+    {menu && <ItemMenu x={menu.x} y={menu.y} label="할 일 메뉴" close={() => setMenu(undefined)} remove={() => {
+      void apply([{ collection: 'items', id: menu.id, value: null }]).then(() => {
+        if (editing === menu.id) setEditing(undefined)
+      }).catch(() => undefined)
+      setMenu(undefined)
+    }} />}
   </>
 }

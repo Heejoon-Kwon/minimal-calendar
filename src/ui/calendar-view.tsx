@@ -19,6 +19,7 @@ interface CalendarProps {
   fontSize?: number
   category: CategoryLookup
   openDate: (date: DateKey) => void
+  showDate: (date: DateKey) => void
   openItem: (item: Item) => void
   openRange: (start: DateKey, end: DateKey) => void
   quickCategory: (anchor: CategoryAnchor) => void
@@ -114,7 +115,7 @@ function DayCell({ day, entries, slots, wraps, props, extraHidden, selected }: {
         title={holiday} aria-current={key === props.today ? 'date' : undefined}
         disabled={props.moving} onClick={open}>{day.getDate()}</button>
       {hidden > 0 && <button className={styles.headerOverflow} disabled={inactive}
-        aria-label={`+${hidden}개`} onClick={open}>+{hidden}</button>}
+        aria-label={`+${hidden}개`} onClick={() => props.showDate(key)}>+{hidden}</button>}
     </div>
     <div className={styles.events} aria-hidden={inactive} inert={inactive}>
       {visibleEvents.map(item => {
@@ -246,7 +247,8 @@ export function CalendarView(props: CalendarProps) {
       clearRange()
       if (rangeStart) {
         const end = calendarDateAt(event.clientX, event.clientY)
-        if (end) props.openRange(rangeStart < end ? rangeStart : end, rangeStart < end ? end : rangeStart)
+        if (end === rangeStart) props.openDate(end)
+        else if (end) props.openRange(rangeStart < end ? rangeStart : end, rangeStart < end ? end : rangeStart)
         return
       }
       const horizontal = event.clientX - start.x

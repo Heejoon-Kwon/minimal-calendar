@@ -10,9 +10,9 @@ export function CategorySelect({ categories, value, change }: { categories: Cate
   </select>
 }
 
-export function ItemEditor({ item, date, rangeEnd, rangeDraft, defaultCategory, categories, save, remove }: {
+export function ItemEditor({ item, date, rangeEnd, rangeDraft, defaultCategory, categories, save, remove, showDate }: {
   item?: Item; date: DateKey | null; rangeEnd?: DateKey; rangeDraft?: boolean; defaultCategory: string; categories: Category[]
-  save: (item: Item) => Promise<void>; remove: () => void
+  save: (item: Item) => Promise<void>; remove: () => void; showDate?: () => void
 }) {
   const [title, setTitle] = useState(item?.title ?? '')
   const [hasTime, setHasTime] = useState(Boolean(item?.start_time))
@@ -70,6 +70,7 @@ export function ItemEditor({ item, date, rangeEnd, rangeDraft, defaultCategory, 
     </div>}
     {error && <p className={styles.error} role="alert">{error}</p>}
     <div className={styles.formFooter}>
+      {showDate && <button className={styles.secondary} type="button" onClick={showDate}>이 날짜 일정</button>}
       {item && <button className={styles.danger} type="button" onClick={remove}><Trash2 size={15} /> 삭제</button>}
       <button className={styles.primary} type="submit" disabled={saving}>저장</button>
     </div>

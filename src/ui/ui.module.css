@@ -2,6 +2,7 @@
 :global(:root) {
   color-scheme: light;
   --surface: #fff;
+  --weekend: color-mix(in srgb, var(--ink) 3%, var(--surface));
   --page: #f4f3f1;
   --ink: #121212;
   --muted: #55534f;
@@ -138,7 +139,6 @@
   --event-height: calc(var(--event-font) + var(--event-leading));
   --event-gap: 2px;
   --date-height: 26px;
-  --weekend: color-mix(in srgb, var(--ink) 3%, var(--surface));
   display: grid;
   grid-template-rows: 32px minmax(0, 1fr);
   touch-action: none;
@@ -300,7 +300,7 @@
 .formFooter button:last-child { margin-left: auto; }
 .subtle { color: var(--muted); font-size: 13px; }
 .error { color: var(--danger); font-size: 13px; }
-.categoryPopover { position: fixed; z-index: 5; display: grid; width: 176px; max-height: min(282px, 80dvh); overflow: auto; padding: 5px; }
+.categoryPopover { position: fixed; z-index: 5; display: grid; grid-template-rows: minmax(0, auto) auto; width: 176px; max-height: min(282px, 80dvh); overflow: hidden; padding: 5px; }
 .categoryChoice { display: flex; align-items: center; text-align: left; border-radius: 5px; font-size: 14px; min-height: 29px; }
 .categoryChoice[aria-pressed='true'] { font-weight: 730; background: color-mix(in srgb, var(--category) var(--tint), var(--surface)); }
 .settings section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; border-top: 1px solid var(--line); padding-top: 10px; }
@@ -416,3 +416,10 @@
 @media (prefers-reduced-motion: reduce) {
   .todoPanel[data-pulling='true'] { transform: translateY(0); }
 }
+
+.categoryOptions { overflow: auto; display: grid; align-content: start; }
+.menuDelete { gap: 7px; padding-inline: 6px; color: var(--danger); }
+.menuDelete::before { content: none; }
+.menuDelete:hover { background: var(--danger-bg); }
+.categoryOptions + .menuDelete { border-top: 1px solid var(--line); border-radius: 0 0 5px 5px; }
+[data-backlog-drag] { touch-action: pan-y; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }

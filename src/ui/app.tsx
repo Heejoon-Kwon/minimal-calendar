@@ -9,7 +9,8 @@ import type { Repository, RepositoryState } from '../data/repository'
 import { calendarDateAt, CalendarView, tint, type CategoryAnchor } from './calendar-view'
 import { Dialog } from './dialog'
 import { ItemEditor } from './editors'
-import { Planner } from './planner'
+import { ItemMenu } from './item-menu'
+import { Planner, plannerPlacementChanges, plannerDateAt } from './planner'
 import { SettingsPanel } from './settings'
 import { DropCancel, TodoPanel, TodoTrigger } from './todos'
 import styles from './ui.module.css'
@@ -23,22 +24,28 @@ class CalendarMouseSensor extends MouseSensor {
   static activators: typeof MouseSensor.activators = MouseSensor.activators.map(activator => ({
     ...activator,
     handler(event, options) {
-      return event.target instanceof Element && Boolean(event.target.closest('[data-move-handle], [data-event]'))
+      return event.target instanceof Element && Boolean(event.target.closest('[data-event]'))
         && activator.handler(event, options)
     },
   }))
 }
 
-function ignoreTodoControls(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest('button:not([data-move-handle])')
-    && !target.closest('[data-todo-title], [data-event]'))
+class BacklogMouseSensor extends MouseSensor {
+  static activators: typeof MouseSensor.activators = MouseSensor.activators.map(activator => ({
+    ...activator,
+    handler(event, options) {
+      return event.target instanceof Element && Boolean(event.target.closest('[data-backlog-drag]'))
+        && activator.handler(event, options)
+    },
+  }))
 }
 
 class CalendarTouchSensor extends TouchSensor {
   static activators: typeof TouchSensor.activators = TouchSensor.activators.map(activator => ({
     ...activator,
     handler(event, options) {
-      return !ignoreTodoControls(event.target) && activator.handler(event, options)
+      return event.target instanceof Element && Boolean(event.target.closest('[data-backlog-drag], [data-event]'))
+        && activator.handler(event, options)
     },
   }))
 }
@@ -72,6 +79,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [overlay, setOverlay] = useState<Overlay>()
   const [anchor, setAnchor] = useState<CategoryAnchor>()
   const [todoOpen, setTodoOpen] = useState(false)
+  const [plannerOpen, setPlannerOpen] = useState(false)
   const [pull, setPull] = useState(0)
   const [view, setView] = useState<'calendar' | 'planner'>('calendar')
   const [scrollRequest, setScrollRequest] = useState(0)
@@ -80,11 +88,11 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [landing, setLanding] = useState<{ itemId: string; date: DateKey; color: string }>()
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
-  const anchorRef = useRef<HTMLDivElement>(null)
   const todoTriggerRef = useRef<HTMLButtonElement>(null)
   const releasePoint = useRef<{ x: number; y: number }>(null)
   const sensors = useSensors(
     useSensor(CalendarMouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(BacklogMouseSensor, { activationConstraint: { delay: 260, tolerance: 10 } }),
     useSensor(CalendarTouchSensor, { activationConstraint: { delay: 420, tolerance: 10 } }),
   )
 
@@ -181,18 +189,13 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }, [anchor, clickMoving, dragging, overlay, todoOpen, view])
 
   useEffect(() => {
-    const outside = (event: PointerEvent) => {
-      if (anchorRef.current && !anchorRef.current.contains(event.target as Node)) setAnchor(undefined)
-    }
     function captureRelease(event: MouseEvent | TouchEvent) {
       const point = 'changedTouches' in event ? event.changedTouches[0] : event
       if (point) releasePoint.current = { x: point.clientX, y: point.clientY }
     }
-    window.addEventListener('pointerdown', outside)
     window.addEventListener('mouseup', captureRelease, true)
     window.addEventListener('touchend', captureRelease, true)
     return () => {
-      window.removeEventListener('pointerdown', outside)
       window.removeEventListener('mouseup', captureRelease, true)
       window.removeEventListener('touchend', captureRelease, true)
     }
@@ -232,6 +235,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const category = (id: string) => categories.find(value => value.id === id) ?? defaultCategory
   const todos = sortTodos(items.filter(item => item.date === null))
   const movingItem = items.find(item => item.id === (dragging ?? clickMoving))
+  const draggedTask = plannerTasks.find(task => task.id === dragging)
   const weeks = monthWeeks(month, settings.week_start)
   const todayRow = weeks.findIndex(week => week.some(day => dateKey(day) === today))
   const todoSide = todayRow >= Math.ceil(weeks.length / 2) ? 'top' : 'bottom'
@@ -248,8 +252,21 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   function drop(event: DragEndEvent) {
     // Dnd-kit's last highlighted target can lag the actual release by one frame.
     const point = releasePoint.current
+    const id = event.active.data.current?.itemId ?? event.active.id
+    const task = plannerTasks.find(value => value.id === id)
+    if (task) {
+      const date = point ? plannerDateAt(point.x, point.y) : event.over?.data.current?.date
+      if (typeof date === 'string') {
+        void apply(plannerPlacementChanges(plannerTasks, task, date)).then(() => {
+          setPlannerOpen(false)
+          setLanding({ itemId: task.id, date, color: 'var(--ink)' })
+        })
+          .catch(() => undefined).finally(cancelMove)
+      } else cancelMove()
+      return
+    }
     const date = point ? calendarDateAt(point.x, point.y) : event.over?.id
-    const item = items.find(value => value.id === (event.active.data.current?.itemId ?? event.active.id))
+    const item = items.find(value => value.id === id)
     if (item && typeof date === 'string' && date !== 'cancel') schedule(item, date)
     else cancelMove()
   }
@@ -281,6 +298,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     const close = () => setOverlay(back ? { kind: 'date', date: back } : undefined)
     dialog = <Dialog key={itemId ?? 'new-item'} title={itemId ? '항목 편집' : date ? '일정 추가' : '미정 일정 추가'} close={close}>
       <ItemEditor item={selected} date={date} rangeEnd={rangeEnd} rangeDraft={rangeDraft} defaultCategory={defaultCategory.id} categories={categories}
+        showDate={date && !itemId && !back && !rangeDraft && !rangeEnd ? () => setOverlay({ kind: 'date', date }) : undefined}
         save={async item => { await apply([put('items', item)]); close() }}
         remove={() => {
           if (itemId) void apply([{ collection: 'items', id: itemId, value: null }]).then(close).catch(() => undefined)
@@ -294,13 +312,13 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
 
   const syncLabel = !logout ? '로컬 모드' : !online ? '오프라인' : syncError ? '동기화 대기 · 재시도' : pending ? '동기화 중' : '동기화 연결됨'
 
-  return <DndContext sensors={sensors} collisionDetection={pointerWithin} autoScroll={false}
+  return <DndContext sensors={sensors} collisionDetection={pointerWithin} autoScroll={view === 'planner'}
     onDragStart={event => {
       releasePoint.current = null
       setDragging(String(event.active.data.current?.itemId ?? event.active.id))
       setAnchor(undefined)
     }} onDragEnd={drop} onDragCancel={cancelMove}
-    accessibility={{ screenReaderInstructions: { draggable: '이동 핸들을 누르고 달력의 날짜를 선택하거나 원하는 날짜로 드래그하세요.' } }}>
+    accessibility={{ screenReaderInstructions: { draggable: '미정 항목을 길게 눌러 원하는 날짜로 끌어 놓으세요. 키보드에서는 Enter로 이동을 시작하세요.' } }}>
     <main className={styles.app} style={{ '--todo-font': `${settings.todo_font_size ?? 14}px` } as CSSProperties}>
       <header className={styles.masthead}>
         <Brand />
@@ -324,20 +342,20 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
         </div>
         <div className={styles.topActions}>
           <div className={styles.viewSwitch} role="group" aria-label="보기 선택">
-            <button aria-pressed={view === 'calendar'} disabled={!!movingItem} onClick={() => setView('calendar')}>월간</button>
-            <button aria-pressed={view === 'planner'} disabled={!!movingItem} onClick={() => { setTodoOpen(false); setView('planner') }}>2주</button>
+            <button aria-pressed={view === 'calendar'} disabled={Boolean(movingItem || draggedTask)} onClick={() => { setPlannerOpen(false); setView('calendar') }}>월간</button>
+            <button aria-pressed={view === 'planner'} disabled={Boolean(movingItem || draggedTask)} onClick={() => { setTodoOpen(false); setView('planner') }}>2주</button>
           </div>
           <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout}
             data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'}>{syncLabel}</button>
-          <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })} disabled={Boolean(movingItem)}><Settings2 size={18} /></button>
+          <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })} disabled={Boolean(movingItem || draggedTask)}><Settings2 size={18} /></button>
         </div>
       </header>
       {view === 'calendar' ? <>
       <CalendarView month={month} today={today} weekStart={settings.week_start} items={items} fontSize={settings.calendar_font_size}
         category={category} openDate={date => {
           if (clickMoving && movingItem) schedule(movingItem, date)
-          else setOverlay({ kind: 'date', date })
-        }} openItem={editItem} quickCategory={setAnchor}
+          else setOverlay({ kind: 'item', date })
+        }} showDate={date => setOverlay({ kind: 'date', date })} openItem={editItem} quickCategory={setAnchor}
         openRange={(date, rangeEnd) => setOverlay({ kind: 'item', date, rangeEnd })}
         landing={landing} moving={Boolean(dragging)} picking={Boolean(clickMoving)}
         swipeMonth={!overlay && !anchor && !dragging && !clickMoving
@@ -357,22 +375,25 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
           commit(sorted.flatMap((value, position) => value.sort_order === position ? [] : [put('items', { ...value, sort_order: position })]))
         }} quickCategory={setAnchor} move={item => setClickMoving(item.id)} />
       </> : <Planner today={today} weekStart={settings.week_start} events={items} tasks={plannerTasks}
-        category={category} categoryId={defaultCategory.id} apply={apply} scrollRequest={scrollRequest} />}
-      {landing && view === 'calendar' && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
+        category={category} categoryId={defaultCategory.id} apply={apply} scrollRequest={scrollRequest}
+        open={plannerOpen} setOpen={setPlannerOpen} dragging={Boolean(draggedTask)} cancelDrag={cancelMove} />}
+      {landing && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
       {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
-      {anchor && <div ref={anchorRef} className={styles.categoryPopover} role="dialog" aria-label="카테고리 변경"
-        style={{ left: Math.max(8, Math.min(anchor.x, window.innerWidth - 184)), top: Math.max(8, Math.min(anchor.y, window.innerHeight - 292)) }}>
+      {anchor && <ItemMenu x={anchor.x} y={anchor.y} label="카테고리 변경" close={() => setAnchor(undefined)} remove={() => {
+        commit([{ collection: 'items', id: anchor.item.id, value: null }])
+        setAnchor(undefined)
+      }}>
         {categories.map(value => <button key={value.id} className={styles.categoryChoice}
           style={tint(value.color)} aria-pressed={anchor.item.category_id === value.id} onClick={() => {
             const item = items.find(candidate => candidate.id === anchor.item.id)
             if (item) commit([put('items', { ...item, category_id: value.id })])
             setAnchor(undefined)
           }}>{value.name}</button>)}
-      </div>}
+      </ItemMenu>}
       {dialog}
     </main>
-    <DragOverlay modifiers={[followPointer]} style={{ width: 'max-content', maxWidth: 180, pointerEvents: 'none' }} dropAnimation={null}>{dragging && movingItem && <div className={styles.dragGhost} data-drag-preview style={tint(category(movingItem.category_id).color)}>
-      {movingItem.title}
+    <DragOverlay modifiers={[followPointer]} style={{ width: 'max-content', maxWidth: 180, pointerEvents: 'none' }} dropAnimation={null}>{dragging && (movingItem || draggedTask) && <div className={styles.dragGhost} data-drag-preview style={tint(movingItem ? category(movingItem.category_id).color : 'var(--ink)')}>
+      {movingItem?.title ?? draggedTask?.title}
     </div>}</DragOverlay>
   </DndContext>
 }

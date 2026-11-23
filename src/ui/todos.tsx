@@ -15,11 +15,17 @@ function TodoRow({ item, category, edit, reorder, quickCategory, move, first, la
     quickCategory({ item, x: rect.left, y: rect.bottom })
   }
   return <li className={styles.todoRow} ref={setNodeRef} {...listeners}>
-    <button className={styles.todoTitle} data-todo-title style={tint(category(item.category_id).color)} onClick={edit}>{item.title}</button>
+    <button className={styles.todoTitle} data-backlog-drag style={tint(category(item.category_id).color)} onClick={edit}
+      onContextMenu={event => {
+        event.preventDefault()
+        if (!(event.nativeEvent instanceof PointerEvent) || event.nativeEvent.pointerType !== 'touch') {
+          quickCategory({ item, x: event.clientX, y: event.clientY })
+        }
+      }}>{item.title}</button>
     <button className={styles.rowIcon} aria-label={`${item.title} 위로`} disabled={first} onClick={() => reorder(-1)}><ArrowUp size={13} /></button>
     <button className={styles.rowIcon} aria-label={`${item.title} 아래로`} disabled={last} onClick={() => reorder(1)}><ArrowDown size={13} /></button>
     <button className={styles.rowIcon} aria-label={`${item.title} 카테고리`} onClick={event => showCategory(event.currentTarget)}><MoreHorizontal size={16} /></button>
-    <button ref={setActivatorNodeRef} className={styles.moveHandle} data-move-handle aria-label={`${item.title} 달력으로 이동`} onClick={move}><GripVertical size={17} /></button>
+    <button ref={setActivatorNodeRef} className={styles.moveHandle} data-backlog-drag aria-label={`${item.title} 달력으로 이동`} onClick={event => { if (event.detail === 0) move() }}><GripVertical size={17} /></button>
   </li>
 }
 

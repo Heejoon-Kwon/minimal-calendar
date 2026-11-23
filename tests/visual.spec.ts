@@ -86,7 +86,7 @@ test('전체 화면 월간 달력, 스타일과 할 일 배치', async ({ page }
   const handle = await center(todo.getByRole('button', { name: /읽을 책 목록 정리 달력으로 이동/ }))
   await page.mouse.move(handle.x, handle.y)
   await page.mouse.down()
-  await page.mouse.move(handle.x - 15, handle.y - 15, { steps: 3 })
+  await expect(page.locator('[data-drag-preview]')).toBeVisible()
   const target = await center(today)
   await page.mouse.move(target.x, target.y, { steps: 8 })
   await expect(page.getByRole('button', { name: '이동 취소' })).toBeVisible()
