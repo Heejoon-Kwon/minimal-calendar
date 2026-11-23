@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Download, Plus, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, GripVertical, Plus, Trash2, Upload } from 'lucide-react'
 import { decodeBackup, encodeBackup, replaceChanges } from '../data/backup'
 import { calendarFontSizes, entity, put, todoFontSizes, type Appearance, type Category, type Change, type Records, type Settings, type WeekStart } from '../data/model'
 import { CategorySelect } from './editors'
@@ -10,9 +10,10 @@ const appearances: Array<[Appearance, string]> = [
   ['ivory', '아이보리'], ['plum', '자주'], ['charcoal', '차콜'],
 ]
 
-function CategoryRow({ category, save, remove, removable, moveUp, moveDown }: {
+function CategoryRow({ category, save, remove, removable, moveUp, moveDown, pick, picked, destination }: {
   category: Category; save: (category: Category) => void; remove: () => void; removable: boolean
   moveUp?: () => void; moveDown?: () => void
+  pick: () => void; picked: boolean; destination: boolean
 }) {
   return <div className={styles.categoryRow}>
     <input type="color" aria-label={`${category.name} 색상`} value={category.color}
@@ -24,6 +25,8 @@ function CategoryRow({ category, save, remove, removable, moveUp, moveDown }: {
         event.currentTarget.value = name || category.name
         if (name && name !== category.name) save({ ...category, name })
       }} />
+    <button className={styles.rowIcon} aria-label={destination ? `${category.name} 위치에 놓기` : `${category.name} 순서 이동`}
+      aria-pressed={picked} onClick={pick}><GripVertical size={15} /></button>
     <button className={styles.rowIcon} disabled={!moveUp} aria-label={`${category.name} 위로`} onClick={moveUp}><ArrowUp size={15} /></button>
     <button className={styles.rowIcon} disabled={!moveDown} aria-label={`${category.name} 아래로`} onClick={moveDown}><ArrowDown size={15} /></button>
     <button className={styles.rowIcon} disabled={!removable} aria-label={`${category.name} 삭제`} onClick={remove}><Trash2 size={15} /></button>
@@ -34,6 +37,7 @@ export function SettingsPanel({ records, settings, apply, logout }: {
   records: Records; settings: Settings; apply: (changes: Change[]) => Promise<void>; logout?: () => void
 }) {
   const [name, setName] = useState('')
+  const [movingCategory, setMovingCategory] = useState<string>()
   const [notice, setNotice] = useState('')
   const [backup, setBackup] = useState<Records>()
   const file = useRef<HTMLInputElement>(null)
@@ -103,8 +107,15 @@ export function SettingsPanel({ records, settings, apply, logout }: {
       <label>기본 카테고리<CategorySelect categories={categories} value={settings.default_category_id}
         change={default_category_id => save([put('settings', { ...settings, default_category_id })])} /></label>
       {categories.map((category, index) => <CategoryRow key={category.id} category={category} removable={categories.length > 1}
-        moveUp={index > 0 ? () => reorderCategory(index, index - 1) : undefined}
-        moveDown={index < categories.length - 1 ? () => reorderCategory(index, index + 1) : undefined}
+        picked={movingCategory === category.id} destination={!!movingCategory && movingCategory !== category.id}
+        pick={() => {
+          if (!movingCategory) { setMovingCategory(category.id); return }
+          const from = categories.findIndex(value => value.id === movingCategory)
+          if (from >= 0 && from !== index) reorderCategory(from, index)
+          setMovingCategory(undefined)
+        }}
+        moveUp={!movingCategory && index > 0 ? () => reorderCategory(index, index - 1) : undefined}
+        moveDown={!movingCategory && index < categories.length - 1 ? () => reorderCategory(index, index + 1) : undefined}
         save={value => save([put('categories', value)])} remove={() => removeCategory(category.id)} />)}
       <form className={styles.categoryRow} onSubmit={event => {
         event.preventDefault()

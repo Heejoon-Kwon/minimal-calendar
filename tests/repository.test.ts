@@ -115,3 +115,13 @@ it('이전 백업의 기한을 제외하고 새 화면 설정과 카테고리 �
   expect(restored.records.settings[0]).toMatchObject({ calendar_style: 'ivory', calendar_font_size: 8, todo_font_size: 8 })
   expect(restored.records.categories.slice(0, 2).map(({ id }) => id)).toEqual(category_order)
 })
+
+it('기간 일정과 계획의 할 일을 백업에서 별도 종류로 유지한다', () => {
+  const records = initialRecords()
+  records.items.push({ ...item(), date: '2026-08-18', end_date: '2026-08-20' })
+  records.items.push({ ...item(), date: '2026-08-19', planner_todo: true })
+  const restored = decodeBackup(encodeBackup(records)).items
+  expect(restored[0]).toMatchObject({ date: '2026-08-18', end_date: '2026-08-20' })
+  expect(restored[0].planner_todo).toBeUndefined()
+  expect(restored[1]).toMatchObject({ date: '2026-08-19', planner_todo: true })
+})

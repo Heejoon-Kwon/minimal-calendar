@@ -3,26 +3,27 @@ import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent, type Modifier,
 } from '@dnd-kit/core'
 import { CalendarRange, Check, ChevronLeft, ChevronRight, Plus, Settings2 } from 'lucide-react'
-import { dateKey, monthWeeks, moveMonth, readableDate, sortEvents, sortTodos } from '../calendar'
-import { put, type Change, type DateKey, type Item } from '../data/model'
+import { dateKey, monthWeeks, moveEvent, moveMonth, occursOn, readableDate, sortEvents, sortTodos } from '../calendar'
+import { isPlannerTodo, put, type Change, type DateKey, type Item } from '../data/model'
 import type { Repository, RepositoryState } from '../data/repository'
-import { CalendarView, tint, type CategoryAnchor } from './calendar-view'
+import { calendarDateAt, CalendarView, tint, type CategoryAnchor } from './calendar-view'
 import { Dialog } from './dialog'
 import { ItemEditor } from './editors'
+import { Planner } from './planner'
 import { SettingsPanel } from './settings'
 import { DropCancel, TodoPanel, TodoTrigger } from './todos'
 import styles from './ui.module.css'
 
 type Overlay =
   | { kind: 'date'; date: DateKey }
-  | { kind: 'item'; date: DateKey | null; itemId?: string; back?: DateKey }
+  | { kind: 'item'; date: DateKey | null; itemId?: string; back?: DateKey; rangeEnd?: DateKey; rangeDraft?: boolean }
   | { kind: 'settings' }
 
 class CalendarMouseSensor extends MouseSensor {
   static activators: typeof MouseSensor.activators = MouseSensor.activators.map(activator => ({
     ...activator,
     handler(event, options) {
-      return event.target instanceof Element && Boolean(event.target.closest('[data-move-handle]'))
+      return event.target instanceof Element && Boolean(event.target.closest('[data-move-handle], [data-event]'))
         && activator.handler(event, options)
     },
   }))
@@ -30,7 +31,7 @@ class CalendarMouseSensor extends MouseSensor {
 
 function ignoreTodoControls(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('button:not([data-move-handle])')
-    && !target.closest('[data-todo-title]'))
+    && !target.closest('[data-todo-title], [data-event]'))
 }
 
 class CalendarTouchSensor extends TouchSensor {
@@ -71,6 +72,9 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [overlay, setOverlay] = useState<Overlay>()
   const [anchor, setAnchor] = useState<CategoryAnchor>()
   const [todoOpen, setTodoOpen] = useState(false)
+  const [pull, setPull] = useState(0)
+  const [view, setView] = useState<'calendar' | 'planner'>('calendar')
+  const [scrollRequest, setScrollRequest] = useState(0)
   const [dragging, setDragging] = useState<string>()
   const [clickMoving, setClickMoving] = useState<string>()
   const [landing, setLanding] = useState<{ itemId: string; date: DateKey; color: string }>()
@@ -149,6 +153,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
+      if (view !== 'calendar') return
       if (event.key === 'Escape') {
         if (anchor) setAnchor(undefined)
         else if (clickMoving) setClickMoving(undefined)
@@ -165,11 +170,15 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
         event.preventDefault()
         setTodoOpen(open => !open)
         todoTriggerRef.current?.focus()
+      } else if (!event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+        && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        event.preventDefault()
+        setMonth(value => moveMonth(value, event.key === 'ArrowLeft' ? -1 : 1))
       }
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [anchor, clickMoving, dragging, overlay, todoOpen])
+  }, [anchor, clickMoving, dragging, overlay, todoOpen, view])
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -215,12 +224,14 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   }
 
   const { records, pending } = state
-  const { items, categories } = records
+  const { categories } = records
+  const items = records.items.filter(item => !isPlannerTodo(item))
+  const plannerTasks = records.items.filter(isPlannerTodo)
   const settings = records.settings[0]
   const defaultCategory = categories.find(category => category.id === settings.default_category_id) ?? categories[0]
   const category = (id: string) => categories.find(value => value.id === id) ?? defaultCategory
   const todos = sortTodos(items.filter(item => item.date === null))
-  const movingItem = todos.find(item => item.id === (dragging ?? clickMoving))
+  const movingItem = items.find(item => item.id === (dragging ?? clickMoving))
   const weeks = monthWeeks(month, settings.week_start)
   const todayRow = weeks.findIndex(week => week.some(day => dateKey(day) === today))
   const todoSide = todayRow >= Math.ceil(weeks.length / 2) ? 'top' : 'bottom'
@@ -228,18 +239,17 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   function schedule(item: Item, date: DateKey) {
     setTodoOpen(false)
     cancelMove()
-    void apply([put('items', { ...item, date, start_time: null, end_time: null })])
+    if (item.date === date) return
+    void apply([put('items', moveEvent(item, date))])
       .then(() => setLanding({ itemId: item.id, date, color: category(item.category_id).color }))
-      .catch(() => setTodoOpen(true))
+      .catch(() => { if (!item.date) setTodoOpen(true) })
   }
 
   function drop(event: DragEndEvent) {
     // Dnd-kit's last highlighted target can lag the actual release by one frame.
     const point = releasePoint.current
-    const date = point
-      ? document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>('[data-date]')?.dataset.date
-      : event.over?.id
-    const item = todos.find(value => value.id === event.active.id)
+    const date = point ? calendarDateAt(point.x, point.y) : event.over?.id
+    const item = items.find(value => value.id === (event.active.data.current?.itemId ?? event.active.id))
     if (item && typeof date === 'string' && date !== 'cancel') schedule(item, date)
     else cancelMove()
   }
@@ -251,23 +261,26 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   let dialog: ReactNode
   if (overlay?.kind === 'date') {
     const { date } = overlay
-    const events = sortEvents(items.filter(item => item.date === date))
+    const events = sortEvents(items.filter(item => occursOn(item, date)))
     dialog = <Dialog key={date} title={readableDate(date)} close={() => setOverlay(undefined)}>
       <div className={styles.dayList}>
         {events.length === 0 && <p className={styles.empty}>등록된 일정이 없습니다.</p>}
         {events.map(item => <button key={item.id} className={styles.detailRow} style={tint(category(item.category_id).color)}
           onClick={() => editItem(item, date)}><span>{item.title}</span><span>{item.start_time?.slice(0, 5) ?? '하루 종일'}</span></button>)}
       </div>
-      <button className={styles.primary} data-focus onClick={() => setOverlay({ kind: 'item', date, back: date })}><Plus size={16} /> 일정 추가</button>
+      <div className={styles.dateActions}>
+        <button className={styles.secondary} onClick={() => setOverlay({ kind: 'item', date, back: date, rangeDraft: true })}>기간 일정</button>
+        <button className={styles.primary} data-focus onClick={() => setOverlay({ kind: 'item', date, back: date })}><Plus size={16} /> 일정 추가</button>
+      </div>
     </Dialog>
   }
 
   if (overlay?.kind === 'item') {
-    const { date, back, itemId } = overlay
+    const { date, back, itemId, rangeEnd, rangeDraft } = overlay
     const selected = items.find(item => item.id === itemId)
     const close = () => setOverlay(back ? { kind: 'date', date: back } : undefined)
-    dialog = <Dialog key={itemId ?? 'new-item'} title={itemId ? '항목 편집' : date ? '일정 추가' : '할 일 추가'} close={close}>
-      <ItemEditor item={selected} date={date} defaultCategory={defaultCategory.id} categories={categories}
+    dialog = <Dialog key={itemId ?? 'new-item'} title={itemId ? '항목 편집' : date ? '일정 추가' : '미정 일정 추가'} close={close}>
+      <ItemEditor item={selected} date={date} rangeEnd={rangeEnd} rangeDraft={rangeDraft} defaultCategory={defaultCategory.id} categories={categories}
         save={async item => { await apply([put('items', item)]); close() }}
         remove={() => {
           if (itemId) void apply([{ collection: 'items', id: itemId, value: null }]).then(close).catch(() => undefined)
@@ -284,7 +297,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   return <DndContext sensors={sensors} collisionDetection={pointerWithin} autoScroll={false}
     onDragStart={event => {
       releasePoint.current = null
-      setDragging(String(event.active.id))
+      setDragging(String(event.active.data.current?.itemId ?? event.active.id))
       setAnchor(undefined)
     }} onDragEnd={drop} onDragCancel={cancelMove}
     accessibility={{ screenReaderInstructions: { draggable: '이동 핸들을 누르고 달력의 날짜를 선택하거나 원하는 날짜로 드래그하세요.' } }}>
@@ -292,46 +305,61 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       <header className={styles.masthead}>
         <Brand />
         <div className={styles.monthTitle}>
-          <h1 aria-live="polite" aria-label={`${month.getFullYear()}년 ${month.getMonth() + 1}월`}><strong>{month.getMonth() + 1}월</strong> <span>{month.getFullYear()}년</span></h1>
+          {view === 'calendar' ? <h1 aria-live="polite" aria-label={`${month.getFullYear()}년 ${month.getMonth() + 1}월`}>
+            <strong>{month.getMonth() + 1}월</strong> <span>{month.getFullYear()}년</span>
+          </h1> : <h1><strong>2주 계획</strong></h1>}
           {movingItem && <span className={styles.screenReader} role="status">달력에서 날짜를 선택하세요</span>}
         </div>
         <div className={styles.navigation}>
-          <button className={styles.today} onClick={() => { setToday(dateKey(new Date())); setMonth(moveMonth(new Date(), 0)) }}>오늘</button>
-          <div className={styles.monthButtons}>
+          <button className={styles.today} onClick={() => {
+            const now = new Date()
+            setToday(dateKey(now))
+            if (view === 'calendar') setMonth(moveMonth(now, 0))
+            else setScrollRequest(value => value + 1)
+          }}>오늘</button>
+          {view === 'calendar' && <div className={styles.monthButtons}>
             <button className={styles.icon} aria-label="이전 달" onClick={() => setMonth(value => moveMonth(value, -1))}><ChevronLeft size={17} /></button>
             <button className={styles.icon} aria-label="다음 달" onClick={() => setMonth(value => moveMonth(value, 1))}><ChevronRight size={17} /></button>
-          </div>
+          </div>}
         </div>
         <div className={styles.topActions}>
+          <div className={styles.viewSwitch} role="group" aria-label="보기 선택">
+            <button aria-pressed={view === 'calendar'} disabled={!!movingItem} onClick={() => setView('calendar')}>월간</button>
+            <button aria-pressed={view === 'planner'} disabled={!!movingItem} onClick={() => { setTodoOpen(false); setView('planner') }}>2주</button>
+          </div>
           <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout}
             data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'}>{syncLabel}</button>
           <button className={styles.icon} aria-label="설정" onClick={() => setOverlay({ kind: 'settings' })} disabled={Boolean(movingItem)}><Settings2 size={18} /></button>
         </div>
       </header>
+      {view === 'calendar' ? <>
       <CalendarView month={month} today={today} weekStart={settings.week_start} items={items} fontSize={settings.calendar_font_size}
         category={category} openDate={date => {
           if (clickMoving && movingItem) schedule(movingItem, date)
           else setOverlay({ kind: 'date', date })
         }} openItem={editItem} quickCategory={setAnchor}
+        openRange={(date, rangeEnd) => setOverlay({ kind: 'item', date, rangeEnd })}
         landing={landing} moving={Boolean(dragging)} picking={Boolean(clickMoving)}
         swipeMonth={!overlay && !anchor && !dragging && !clickMoving
           ? offset => setMonth(value => moveMonth(value, offset)) : undefined} />
       <footer className={styles.todoDock}>
         {movingItem ? <DropCancel cancel={cancelMove} /> :
           <TodoTrigger buttonRef={todoTriggerRef} count={todos.length} open={todoOpen}
-            toggle={() => setTodoOpen(open => !open)} reveal={() => setTodoOpen(true)} />}
+            toggle={() => setTodoOpen(open => !open)} reveal={() => setTodoOpen(true)} pull={setPull} />}
       </footer>
-      {landing && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
-      {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
-      <TodoPanel items={todos} category={category} open={todoOpen && !dragging && !clickMoving} side={todoSide}
+      <TodoPanel items={todos} category={category} open={todoOpen && !dragging && !clickMoving} side={todoSide} pull={pull}
         close={() => { setTodoOpen(false); todoTriggerRef.current?.focus() }} add={() => setOverlay({ kind: 'item', date: null })}
-        edit={item => editItem(item)} toggle={item => commit([put('items', { ...item, completed: !item.completed })])}
+        edit={item => editItem(item)}
         reorder={(index, offset) => {
           const sorted = [...todos]
           const [item] = sorted.splice(index, 1)
           sorted.splice(index + offset, 0, item)
           commit(sorted.flatMap((value, position) => value.sort_order === position ? [] : [put('items', { ...value, sort_order: position })]))
         }} quickCategory={setAnchor} move={item => setClickMoving(item.id)} />
+      </> : <Planner today={today} weekStart={settings.week_start} events={items} tasks={plannerTasks}
+        category={category} categoryId={defaultCategory.id} apply={apply} scrollRequest={scrollRequest} />}
+      {landing && view === 'calendar' && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
+      {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
       {anchor && <div ref={anchorRef} className={styles.categoryPopover} role="dialog" aria-label="카테고리 변경"
         style={{ left: Math.max(8, Math.min(anchor.x, window.innerWidth - 184)), top: Math.max(8, Math.min(anchor.y, window.innerHeight - 292)) }}>
         {categories.map(value => <button key={value.id} className={styles.categoryChoice}

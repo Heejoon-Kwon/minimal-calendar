@@ -1,0 +1,86 @@
+.planner {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding: 10px;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding-bottom: 6px;
+}
+.week { display: grid; gap: 7px; }
+.weekHeading { display: flex; align-items: baseline; gap: 9px; padding-inline: 4px; }
+.weekHeading h2 { font-size: 15px; }
+.weekHeading span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.day {
+  min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+  display: grid; grid-template-rows: auto auto 1fr; align-content: start; min-height: 155px;
+}
+.day[data-today='true'] { border-color: var(--ink); }
+.day h3 {
+  display: flex; align-items: center; gap: 6px; padding: 7px 8px; min-height: 37px;
+  font-size: 12px; color: var(--muted);
+}
+.day h3 strong { color: var(--ink); font-size: 15px; }
+.day[data-today='true'] h3 strong {
+  background: var(--button); color: var(--button-text); border-radius: 5px;
+  padding: 2px 5px; margin-inline-start: -2px;
+}
+.agenda { display: grid; align-content: start; gap: 3px; min-height: 5px; padding: 0 6px 5px; }
+.agendaItem {
+  display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap;
+  gap: 1px 5px; padding: 3px 5px; border-radius: 3px; border-inline-start: 2px solid var(--category);
+  background: color-mix(in srgb, var(--category) var(--tint), var(--surface));
+  font-size: 11px; font-weight: 650; overflow-wrap: anywhere;
+}
+.agendaItem time { color: var(--muted); font-weight: 550; font-variant-numeric: tabular-nums; }
+.dailyTasks { border-top: 1px solid var(--line); padding: 4px 5px; min-width: 0; }
+.taskList { list-style: none; margin: 0; padding: 0; }
+.taskRow {
+  display: flex; flex-wrap: wrap; align-items: start; gap: 2px 5px; padding: 3px 2px;
+  border-bottom: 1px solid var(--line); min-height: 31px;
+}
+.taskRow input[type='checkbox'] { flex: none; margin: 5px 0 0; accent-color: var(--ink); }
+.taskText {
+  text-align: left; overflow-wrap: anywhere; flex: 1 1 50%; min-width: 0; padding: 3px 0;
+  font-size: var(--todo-font, 14px);
+}
+.taskText:hover { text-decoration: underline; }
+.taskRow[data-done='true'] .taskText { color: var(--faint); text-decoration: line-through; }
+.taskRow[data-moving='true'] { border-radius: 4px; outline: 1px dashed var(--faint); padding-inline: 4px; }
+.taskTools { display: flex; margin-inline-start: auto; }
+.taskTools button { width: 24px; height: 26px; }
+.quickAdd, .place {
+  display: flex; align-items: center; gap: 5px; min-height: 32px; padding: 3px 5px;
+  width: 100%; text-align: left; border-radius: 5px; font-weight: 650; font-size: 12px; color: var(--muted);
+}
+.quickAdd:hover, .place:hover { background: var(--hover); color: var(--ink); }
+.place { margin-top: 3px; border: 1px dashed var(--faint); color: var(--ink); }
+.inlineForm { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 3px; margin-block: 4px; }
+.inlineForm input {
+  flex: 1 0 72px; min-width: 0; width: 0; border: 1px solid var(--line);
+  background: var(--surface); border-radius: 5px; padding: 4px 6px; font-size: 16px;
+}
+.inlineForm button { min-height: 30px; padding: 3px 6px; font-size: 12px; }
+.drawerEntry { padding: 5px 8px; flex: none; border-top: 1px solid var(--line); }
+.moving { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.moving span { max-width: 28vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.moving button { min-height: 30px; padding: 4px 7px; font-size: 12px; }
+
+@media (max-width: 1000px) {
+  .days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .planner { padding: 3px 5px 7px; gap: 12px; }
+  .days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .day { min-height: 95px; }
+}
+@media (max-width: 480px) {
+  .days { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .taskRow { flex-wrap: nowrap; }
+  .taskText { flex-basis: auto; }
+}
+
+.dateTarget { border: 1px dashed var(--faint); border-radius: 4px; min-height: 28px; padding: 0 6px; font-weight: 700; }
+.dateTarget:hover { background: var(--hover); }

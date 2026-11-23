@@ -16,11 +16,19 @@ export interface Entity {
 export interface Item extends Entity {
   title: string
   date: DateKey | null
+  end_date?: DateKey
+  planner_todo?: true
   start_time: string | null
   end_time: string | null
   category_id: string
   completed: boolean
   sort_order: number
+}
+
+export type PlannerTodo = Item & { planner_todo: true }
+
+export function isPlannerTodo(item: Item): item is PlannerTodo {
+  return item.planner_todo === true
 }
 
 export interface Category extends Entity {

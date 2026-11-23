@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
-import { useDroppable } from '@dnd-kit/core'
-import { dateKey, eventSlots, monthWeeks, readableDate, sortEvents } from '../calendar'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { dateKey, eventBars, eventSlots, monthWeeks, readableDate, sortEvents } from '../calendar'
 import { koreanHoliday } from '../data/holidays'
 import type { Category, DateKey, Item, WeekStart } from '../data/model'
 import styles from './ui.module.css'
@@ -20,6 +20,7 @@ interface CalendarProps {
   category: CategoryLookup
   openDate: (date: DateKey) => void
   openItem: (item: Item) => void
+  openRange: (start: DateKey, end: DateKey) => void
   quickCategory: (anchor: CategoryAnchor) => void
   landing?: { itemId: string; date: DateKey; color: string }
   moving: boolean
@@ -27,39 +28,35 @@ interface CalendarProps {
   swipeMonth?: (offset: -1 | 1) => void
 }
 
-function EventEntry({ item, category, lines, landed, open, quick }: {
+export function calendarDateAt(x: number, y: number): DateKey | undefined {
+  return document.elementsFromPoint(x, y).map(node => node.closest<HTMLElement>('[data-date]'))
+    .find(node => node?.dataset.date)?.dataset.date
+}
+
+function EventEntry({ item, category, lines, landed, open, quick, bar, interactive }: {
   item: Item; category: Category; lines: number; landed: boolean; open: () => void; quick: (anchor: CategoryAnchor) => void
+  bar?: { start: number; end: number; lane: number; week: string }
+  interactive: boolean
 }) {
-  const timer = useRef<number>(undefined)
-  const initial = useRef({ x: 0, y: 0 })
-  const held = useRef(false)
-  const clear = () => { window.clearTimeout(timer.current) }
-  useLayoutEffect(() => () => window.clearTimeout(timer.current), [])
+  const { listeners, setNodeRef } = useDraggable({
+    id: bar ? `bar:${bar.week}:${item.id}` : `event:${item.id}`, data: { itemId: item.id },
+  })
+
+  const touch = useRef<{ id: number; x: number; y: number; time: number }>(null)
+  const touchOpened = useRef(false)
 
   function context(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault()
-    if (held.current) return
-    clear()
+    if (event.nativeEvent instanceof PointerEvent && event.nativeEvent.pointerType === 'touch') return
     const rect = event.currentTarget.getBoundingClientRect()
     quick({ item, x: event.clientX || rect.left, y: event.clientY || rect.bottom })
   }
 
-  function start(event: PointerEvent<HTMLButtonElement>) {
-    held.current = false
-    if (event.pointerType !== 'touch') return
-    initial.current = { x: event.clientX, y: event.clientY }
-    timer.current = window.setTimeout(() => {
-      held.current = true
-      quick({ item, ...initial.current })
-    }, 480)
-  }
-
-  return <button className={styles.event} style={{ ...tint(category.color), '--title-lines': lines } as CSSProperties}
-    data-event={item.id} data-landed={landed} data-completed={item.completed}
-    onPointerDown={start} onPointerUp={clear} onPointerCancel={clear} onPointerLeave={clear}
-    onPointerMove={event => {
-      if (Math.hypot(event.clientX - initial.current.x, event.clientY - initial.current.y) > 9) clear()
-    }}
+  return <button ref={setNodeRef} {...listeners} className={`${styles.event} ${bar ? styles.eventBar : ''}`} style={{
+    ...tint(category.color), '--title-lines': lines,
+    ...(bar ? { gridColumn: `${bar.start + 1} / ${bar.end + 2}`, gridRow: bar.lane + 1 } : {}),
+  } as CSSProperties}
+    data-event={item.id} data-range-event={Boolean(bar)} data-landed={landed}
     onContextMenu={context}
     onKeyDown={event => {
       if (event.key === 'F10' && event.shiftKey) {
@@ -68,32 +65,52 @@ function EventEntry({ item, category, lines, landed, open, quick }: {
         quick({ item, x: rect.left, y: rect.bottom })
       }
     }}
-    onClick={() => { if (!held.current) open(); held.current = false }}
+    onPointerDown={event => {
+      touchOpened.current = false
+      touch.current = event.isPrimary && event.pointerType === 'touch'
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp } : null
+    }}
+    onPointerMove={event => {
+      const point = touch.current
+      if (point?.id === event.pointerId && Math.hypot(event.clientX - point.x, event.clientY - point.y) > 9) touch.current = null
+    }}
+    onPointerCancel={() => { touch.current = null }}
+    onPointerUp={event => {
+      const point = touch.current
+      touch.current = null
+      if (!interactive || point?.id !== event.pointerId || event.timeStamp - point.time >= 420
+        || Math.hypot(event.clientX - point.x, event.clientY - point.y) > 9) return
+      touchOpened.current = true
+      open()
+    }}
+    onClick={event => {
+      if (interactive && (!touchOpened.current || event.detail === 0)) open()
+    }}
     title={`${item.start_time ? `${item.start_time.slice(0, 5)} ` : ''}${item.title}`}>
     <span className={styles.eventTitle}>{item.title}</span>
     {item.start_time && <time className={styles.eventTime}>{item.start_time.slice(0, 5)}</time>}
   </button>
 }
 
-function DayCell({ day, entries, slots, wraps, props }: {
-  day: Date; entries: Item[]; slots: number; wraps: (title: string) => boolean; props: CalendarProps
+function DayCell({ day, entries, slots, wraps, props, extraHidden, selected }: {
+  day: Date; entries: Item[]; slots: number; extraHidden: number; selected: boolean; wraps: (title: string) => boolean; props: CalendarProps
 }) {
   const key = dateKey(day)
   const holiday = koreanHoliday(day)
   const landing = props.landing?.date === key ? props.landing : undefined
   const { setNodeRef, isOver } = useDroppable({ id: key })
   const visibleEvents = entries.slice(0, slots)
-  const hidden = entries.length - visibleEvents.length
+  const hidden = entries.length - visibleEvents.length + extraHidden
   let spareLines = slots - visibleEvents.length
   const inactive = props.moving || props.picking
   const open = () => props.openDate(key)
 
   return <div ref={setNodeRef} className={styles.day} data-date={key} style={landing ? tint(landing.color) : undefined}
-    data-adjacent={day.getMonth() !== props.month.getMonth()} data-landed={Boolean(landing)}
+    data-range-preview={selected} data-adjacent={day.getMonth() !== props.month.getMonth()} data-landed={Boolean(landing)}
     data-weekend={day.getDay() === 0 || day.getDay() === 6} data-holiday={Boolean(holiday)} data-over={props.moving && isOver}
     onClick={event => { if (!props.moving && event.target === event.currentTarget) open() }}>
     <div className={styles.dayHeader}>
-      <button className={styles.dayButton} aria-label={[readableDate(key), holiday].filter(Boolean).join(', ')}
+      <button className={styles.dayButton} data-day-trigger aria-label={[readableDate(key), holiday].filter(Boolean).join(', ')}
         title={holiday} aria-current={key === props.today ? 'date' : undefined}
         disabled={props.moving} onClick={open}>{day.getDate()}</button>
       {hidden > 0 && <button className={styles.headerOverflow} disabled={inactive}
@@ -104,7 +121,7 @@ function DayCell({ day, entries, slots, wraps, props }: {
         const lines = spareLines > 0 && wraps(item.title) ? 2 : 1
         spareLines -= lines - 1
         return <EventEntry key={item.id} item={item} lines={lines} landed={item.id === landing?.itemId}
-          category={props.category(item.category_id)} open={() => props.openItem(item)} quick={props.quickCategory} />
+          category={props.category(item.category_id)} interactive={!inactive} open={() => props.openItem(item)} quick={props.quickCategory} />
       })}
     </div>
   </div>
@@ -115,12 +132,15 @@ export function CalendarView(props: CalendarProps) {
   const textMeasure = useRef<CanvasRenderingContext2D | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const gesture = useRef<{ id: number; x: number; y: number; monthAllowed: boolean }>(null)
+  const [selection, setSelection] = useState<{ start: DateKey; end: DateKey }>()
+  const selecting = useRef<DateKey>(undefined)
+  const rangeTimer = useRef<number>(undefined)
   const suppressClick = useRef(false)
   const slideDirection = useRef<-1 | 1 | null>(null)
   const weeks = monthWeeks(props.month, props.weekStart)
   const byDay = new Map<DateKey, Item[]>()
   for (const item of props.items) {
-    if (!item.date) continue
+    if (!item.date || (item.end_date && item.end_date > item.date)) continue
     const entries = byDay.get(item.date) ?? []
     entries.push(item)
     byDay.set(item.date, entries)
@@ -160,10 +180,21 @@ export function CalendarView(props: CalendarProps) {
     return () => animation.cancel()
   }, [props.month])
 
+  useLayoutEffect(() => () => window.clearTimeout(rangeTimer.current), [])
+
+  function clearRange() {
+    window.clearTimeout(rangeTimer.current)
+    selecting.current = undefined
+    setSelection(undefined)
+  }
+
   function trackMovement(event: PointerEvent<HTMLElement>) {
     const start = gesture.current
     if (!start || event.pointerId !== start.id) return
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) suppressClick.current = true
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) {
+      suppressClick.current = true
+      window.clearTimeout(rangeTimer.current)
+    }
     return start
   }
 
@@ -173,22 +204,51 @@ export function CalendarView(props: CalendarProps) {
   const slots = eventSlots(metrics.height / weeks.length, metrics.header, metrics.event)
 
   return <section className={styles.calendar} style={fontSize ? { '--event-font': `${fontSize}px` } as CSSProperties : undefined}
-    aria-label="월간 달력" data-picking={props.picking} data-moving={props.moving}
+    aria-label="월간 달력" data-selecting={!!selection} data-picking={props.picking} data-moving={props.moving}
     onPointerDown={event => {
       if (!event.isPrimary) {
         if (gesture.current) suppressClick.current = true
         gesture.current = null
+        clearRange()
         return
       }
       suppressClick.current = false
-      gesture.current = event.pointerType !== 'mouse'
-        ? { id: event.pointerId, x: event.clientX, y: event.clientY, monthAllowed: Boolean(props.swipeMonth) } : null
+      const target = event.target as Element
+      const date = target.closest<HTMLElement>('[data-date]')?.dataset.date
+      const rangeStart = props.swipeMonth && date && (!target.closest('button') || target.closest('[data-day-trigger]')) ? date : undefined
+      if (event.button !== 0 || (event.pointerType === 'mouse' && !rangeStart)) return
+      const id = event.pointerId
+      gesture.current = {
+        id, x: event.clientX, y: event.clientY, monthAllowed: Boolean(props.swipeMonth && event.pointerType !== 'mouse'),
+      }
+      if (rangeStart) {
+        const owner = event.currentTarget
+        rangeTimer.current = window.setTimeout(() => {
+          selecting.current = rangeStart
+          suppressClick.current = true
+          setSelection({ start: rangeStart, end: rangeStart })
+          owner.setPointerCapture(id)
+        }, 450)
+      }
     }}
-    onPointerMove={trackMovement}
+    onPointerMove={event => {
+      trackMovement(event)
+      const start = selecting.current
+      if (!start || gesture.current?.id !== event.pointerId) return
+      const date = calendarDateAt(event.clientX, event.clientY)
+      if (date) setSelection({ start: start < date ? start : date, end: start < date ? date : start })
+    }}
     onPointerUp={event => {
       const start = trackMovement(event)
       if (!start) return
       gesture.current = null
+      const rangeStart = selecting.current
+      clearRange()
+      if (rangeStart) {
+        const end = calendarDateAt(event.clientX, event.clientY)
+        if (end) props.openRange(rangeStart < end ? rangeStart : end, rangeStart < end ? end : rangeStart)
+        return
+      }
       const horizontal = event.clientX - start.x
       const vertical = Math.abs(event.clientY - start.y)
       if (start.monthAllowed && props.swipeMonth && Math.abs(horizontal) >= 52 && Math.abs(horizontal) > vertical * 1.5) {
@@ -197,10 +257,17 @@ export function CalendarView(props: CalendarProps) {
         props.swipeMonth(offset)
       }
     }}
+    onPointerLeave={event => {
+      if (event.pointerType === 'mouse' && !selecting.current && gesture.current?.id === event.pointerId) {
+        gesture.current = null
+        clearRange()
+      }
+    }}
     onPointerCancel={event => {
       if (gesture.current?.id !== event.pointerId) return
       gesture.current = null
       suppressClick.current = true
+      clearRange()
     }}
     onClickCapture={event => {
       if (!suppressClick.current || !event.detail) return
@@ -213,10 +280,27 @@ export function CalendarView(props: CalendarProps) {
         <div key={day} data-weekend={day === 0 || day === 6}>{labels[day]}<span>요일</span></div>)}
     </div>
     <div ref={gridRef} className={styles.grid} data-weeks={weeks.length} style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}>
-      {weeks.map(week => <div className={styles.week} key={dateKey(week[0])}>
-        {week.map(day => <DayCell key={dateKey(day)} day={day} entries={sortEvents(byDay.get(dateKey(day)) ?? [])}
-          slots={slots} wraps={wraps} props={props} />)}
-      </div>)}
+      {weeks.map(week => {
+        const weekKey = dateKey(week[0])
+        const bars = eventBars(week, props.items)
+        const limit = Math.max(1, Math.floor(slots / 2))
+        const visible = bars.filter(bar => bar.lane < limit)
+        const occupied = visible.length ? Math.max(...visible.map(bar => bar.lane)) + 1 : 0
+        return <div className={styles.week} key={weekKey} style={{ '--range-lanes': occupied } as CSSProperties}>
+          {week.map((day, index) => {
+            const key = dateKey(day)
+            return <DayCell key={key} day={day} entries={sortEvents(byDay.get(key) ?? [])}
+              slots={Math.max(0, slots - occupied)} wraps={wraps} props={props}
+              selected={!!selection && key >= selection.start && key <= selection.end}
+              extraHidden={bars.filter(bar => bar.lane >= limit && bar.start <= index && index <= bar.end).length} />
+          })}
+          {visible.length > 0 && <div className={styles.eventBars} inert={props.moving || props.picking}>
+            {visible.map(bar => <EventEntry key={bar.item.id} item={bar.item} category={props.category(bar.item.category_id)}
+              lines={1} interactive={!props.moving && !props.picking} landed={props.landing?.itemId === bar.item.id} bar={{ ...bar, week: weekKey }}
+              open={() => props.openItem(bar.item)} quick={props.quickCategory} />)}
+          </div>}
+        </div>
+      })}
     </div>
   </section>
 }

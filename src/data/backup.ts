@@ -39,6 +39,9 @@ export function decodeBackup(raw: string): Records {
       || new Set(settings[0].category_order).size !== settings[0].category_order.length))
     || items.some(item => !nonempty(item.title) || !ids.has(item.category_id) || typeof item.completed !== 'boolean'
       || !Number.isSafeInteger(item.sort_order) || !(item.date === null || date(item.date))
+      || (item.end_date !== undefined && (!date(item.end_date) || !item.date || item.end_date < item.date))
+      || (item.planner_todo !== undefined && (item.planner_todo !== true || item.end_date !== undefined
+        || item.start_time !== null || item.end_time !== null))
       || (item.start_time !== null && !time(item.start_time))
       || (item.end_time !== null && (!time(item.end_time) || !item.start_time || compareTimes(item.end_time, item.start_time) < 0)))) {
     throw new Error('백업의 날짜, 카테고리 또는 설정이 올바르지 않습니다.')
@@ -51,8 +54,8 @@ export function decodeBackup(raw: string): Records {
       id, created_at, updated_at, theme, week_start, default_category_id,
       calendar_style, calendar_font_size, todo_font_size, category_order: category_order?.filter(id => ids.has(id)),
     })),
-    items: items.map(({ id, created_at, updated_at, title, date, start_time, end_time, category_id, completed, sort_order }) =>
-      ({ id, created_at, updated_at, title, date, start_time, end_time, category_id, completed, sort_order })),
+    items: items.map(({ id, created_at, updated_at, title, date, end_date, planner_todo, start_time, end_time, category_id, completed, sort_order }) =>
+      ({ id, created_at, updated_at, title, date, end_date, planner_todo, start_time, end_time, category_id, completed, sort_order })),
   }
 }
 

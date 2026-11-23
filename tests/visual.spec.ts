@@ -78,8 +78,8 @@ test('전체 화면 월간 달력, 스타일과 할 일 배치', async ({ page }
     await capture(`style-${style}`)
   }
 
-  await page.getByRole('button', { name: '할 일 목록' }).click()
-  const todo = page.getByRole('complementary', { name: '할 일' })
+  await page.getByRole('button', { name: '미정 일정 목록' }).click()
+  const todo = page.getByRole('complementary', { name: '미정 일정' })
   await expect(todo).toBeVisible()
   await expect(todo).toHaveAttribute('data-side', 'top')
   await capture('07-todo-top')

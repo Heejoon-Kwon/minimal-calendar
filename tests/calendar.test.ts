@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateKey, eventSlots, fromKey, monthWeeks, moveMonth, sortEvents } from '../src/calendar'
+import { dateKey, eventBars, eventSlots, fromKey, monthWeeks, moveEvent, moveMonth, occursOn, sortEvents, twoWeekDates } from '../src/calendar'
 import { entity, type Item } from '../src/data/model'
 
 describe('월 계산', () => {
@@ -36,4 +36,15 @@ it('글자 크기에 따라 날짜 칸에 들어가는 줄 수를 계산한다',
   expect(eventSlots(94, 18, 12)).toBe(6)
   expect(eventSlots(94, 18, 13)).toBe(5)
   expect(eventSlots(94, 18, 16)).toBe(4)
+})
+
+it('기간을 옮겨도 날짜 수와 시간이 유지된다', () => {
+  const event: Item = { ...entity(), title: '기간 일정', date: '2026-12-30', end_date: '2027-01-05',
+    start_time: '18:00', end_time: '19:00', category_id: 'category-1', completed: false, sort_order: 0 }
+  expect(moveEvent(event, '2027-01-02')).toMatchObject({ date: '2027-01-02', end_date: '2027-01-08', start_time: '18:00' })
+  expect(occursOn(event, '2027-01-05')).toBe(true)
+  expect(occursOn(event, '2027-01-06')).toBe(false)
+  const weeks = twoWeekDates('2026-12-30', 1)
+  expect(eventBars(weeks[0].map(fromKey), [event])).toMatchObject([{ start: 2, end: 6 }])
+  expect(eventBars(weeks[1].map(fromKey), [event])).toMatchObject([{ start: 0, end: 1 }])
 })
