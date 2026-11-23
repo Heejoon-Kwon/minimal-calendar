@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type MouseEventHandler, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type FormEvent, type MouseEventHandler, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import { fromKey, occursOn, readableDate, sortEvents, sortTodos, twoWeekDates } from '../calendar'
@@ -22,6 +22,32 @@ export function plannerPlacementChanges(tasks: PlannerTodo[], task: PlannerTodo,
   list.splice(index < 0 ? list.length : index, 0, { ...task, date })
   return list.flatMap((value, index) =>
     value.id === task.id || value.sort_order !== index ? [put('items', { ...value, sort_order: index })] : [])
+}
+
+function PlannerWeek({ days, index, children }: { days: DateKey[]; index: number; children: ReactNode }) {
+  const daysRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const week = daysRef.current
+    if (!week) return
+    const agendas = Array.from(week.querySelectorAll<HTMLElement>('[data-planner-agenda-content]'))
+    const alignAgendas = () => {
+      const tallest = Math.max(0, ...agendas.map(agenda => agenda.getBoundingClientRect().height))
+      week.style.setProperty('--agenda-height', `${tallest}px`)
+    }
+    alignAgendas()
+    // Measure the natural content so increasing the shared height does not trigger another resize.
+    const observer = new ResizeObserver(alignAgendas)
+    agendas.forEach(agenda => observer.observe(agenda))
+    return () => observer.disconnect()
+  }, [])
+
+  return <section className={styles.week} aria-labelledby={`week-${index}`}>
+    <div className={styles.weekHeading}>
+      <h2 id={`week-${index}`}>{index === 0 ? '이번 주' : '다음 주'}</h2>
+      <span>{days[0].slice(5).replace('-', '.')} – {days[6].slice(5).replace('-', '.')}</span>
+    </div>
+    <div ref={daysRef} className={styles.days}>{children}</div>
+  </section>
 }
 
 function PlannerDay({ date, today, weekend, todayElement, children }: {
@@ -198,12 +224,8 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
 
   return <>
     <section className={styles.planner} aria-label="2주 계획" data-planner-scroll>
-      {weeks.map((week, index) => <section key={week[0]} className={styles.week} aria-labelledby={`week-${index}`}>
-        <div className={styles.weekHeading}>
-          <h2 id={`week-${index}`}>{index === 0 ? '이번 주' : '다음 주'}</h2>
-          <span>{week[0].slice(5).replace('-', '.')} – {week[6].slice(5).replace('-', '.')}</span>
-        </div>
-        <div className={styles.days}>{week.map(date => {
+      {weeks.map((week, index) => <PlannerWeek key={week[0]} days={week} index={index}>
+        {week.map(date => {
           const day = fromKey(date)
           const agenda = sortEvents(events.filter(item => occursOn(item, date)))
           return <PlannerDay key={date} date={date} today={date === today} weekend={day.getDay() === 0 || day.getDay() === 6}
@@ -212,14 +234,16 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
               ? <button className={styles.dateTarget} aria-label={`${readableDate(date)}에 놓기`} onClick={() => place(pendingTask, date)}>{day.getDate()}일</button>
               : <strong>{day.getDate()}</strong>} {['일', '월', '화', '수', '목', '금', '토'][day.getDay()]}</h3>
             <div className={styles.agenda} aria-label="캘린더 일정">
-              {agenda.map(item => <div key={item.id} className={styles.agendaItem} style={tint(category(item.category_id).color)}>
-                <span>{item.title}</span>{item.start_time && <time>{item.start_time.slice(0, 5)}{item.end_time && `–${item.end_time.slice(0, 5)}`}</time>}
-              </div>)}
+              <div data-planner-agenda-content className={styles.agendaContent}>
+                {agenda.map(item => <div key={item.id} className={styles.agendaItem} style={tint(category(item.category_id).color)}>
+                  <span>{item.title}</span>{item.start_time && <time>{item.start_time.slice(0, 5)}{item.end_time && `–${item.end_time.slice(0, 5)}`}</time>}
+                </div>)}
+              </div>
             </div>
             <div className={styles.dailyTasks}>{rows(date)}{entry(date)}</div>
           </PlannerDay>
-        })}</div>
-      </section>)}
+        })}
+      </PlannerWeek>)}
     </section>
     <footer className={shared.todoDock}>
       {dragging ? <div className={shared.dropActions}>

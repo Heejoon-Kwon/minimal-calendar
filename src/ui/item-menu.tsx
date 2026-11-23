@@ -17,10 +17,23 @@ export function ItemMenu({ x, y, label, remove, close, children }: {
   }, [close])
 
   return <div ref={menu} className={styles.categoryPopover} role="dialog" aria-label={label} onKeyDown={event => {
-    if (event.key !== 'Escape') return
-    event.stopPropagation()
-    close()
-    if (previousFocus.current instanceof HTMLElement) previousFocus.current.focus({ preventScroll: true })
+    if (event.key === 'Escape') {
+      event.stopPropagation()
+      close()
+      if (previousFocus.current instanceof HTMLElement) previousFocus.current.focus({ preventScroll: true })
+      return
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    if (!buttons.length) return
+    event.preventDefault()
+    const current = buttons.findIndex(button => button === document.activeElement)
+    const last = buttons.length - 1
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? last
+      : event.key === 'ArrowDown' ? (current + 1) % buttons.length
+      : current <= 0 ? last : current - 1
+    buttons[next].focus({ preventScroll: true })
+    buttons[next].scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }}
     style={{
       left: Math.max(8, Math.min(x, window.innerWidth - 184)),

@@ -304,7 +304,7 @@
 .formFooter button:last-child { margin-left: auto; }
 .subtle { color: var(--muted); font-size: 13px; }
 .error { color: var(--danger); font-size: 13px; }
-.categoryPopover { position: fixed; z-index: 5; display: grid; grid-template-rows: minmax(0, auto) auto; width: 176px; max-height: min(282px, 80dvh); overflow: hidden; padding: 5px; }
+.categoryPopover { position: fixed; z-index: 5; display: flex; flex-direction: column; width: 176px; max-height: min(282px, 80dvh); overflow: hidden; padding: 5px; }
 .categoryChoice { display: flex; align-items: center; text-align: left; border-radius: 5px; font-size: 14px; min-height: 29px; }
 .categoryChoice[aria-pressed='true'] { font-weight: 730; background: color-mix(in srgb, var(--category) var(--tint), var(--surface)); }
 .settings section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; border-top: 1px solid var(--line); padding-top: 10px; }
@@ -422,7 +422,9 @@
   .todoPanel[data-pulling='true'] { transform: translateY(0); }
 }
 
-.categoryOptions { overflow: auto; display: grid; align-content: start; }
+.categoryOptions { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+.categoryOptions > button, .menuDelete { flex: none; }
+.categoryOptions > button:focus-visible { outline-offset: -2px; }
 .menuDelete { gap: 7px; padding-inline: 6px; color: var(--danger); }
 .menuDelete::before { content: none; }
 .menuDelete:hover { background: var(--danger-bg); }

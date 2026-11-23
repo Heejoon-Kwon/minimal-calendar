@@ -27,6 +27,8 @@ test('이메일 로그인, 인증 유지, 캐시의 오프라인 편집과 재�
     if (path === '/rest/v1/rpc/apply_calendar_changes') {
       if (!acceptWrites) return route.fulfill({ status: 503, json: {}, headers })
       const { changes } = request.postDataJSON() as { changes: Mutation[] }
+      if (changes.some(change => change.collection === 'items' && change.value?.end_time && change.value.start_time
+        && change.value.end_time < change.value.start_time)) return route.fulfill({ status: 400, json: {}, headers })
       for (const change of changes) remote.set(`${change.collection}/${change.id}`, change)
       return route.fulfill({ body: 'null', contentType: 'application/json', headers })
     }
@@ -73,6 +75,22 @@ test('이메일 로그인, 인증 유지, 캐시의 오프라인 편집과 재�
   await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
   await expect(page.getByRole('button', { name: '동기화 연결됨' })).toBeVisible()
   expect([...remote.values()].filter(row => row.collection === 'items')).toMatchObject([{ value: { title: '기내에서 수정한 일', date: null } }])
+
+  await page.clock.setFixedTime(new Date('2026-08-18T12:00:00'))
+  await page.getByRole('button', { name: '오늘', exact: true }).click()
+  await page.locator('[data-date="2026-08-18"] [data-day-trigger]').click()
+  await page.getByRole('button', { name: '이 날짜 일정' }).click()
+  await page.getByRole('button', { name: '기간 일정' }).click()
+  await page.getByLabel('제목').fill('서버에 저장할 야간 일정')
+  await page.getByLabel('종료 날짜').fill('2026-08-19')
+  await page.getByLabel('시간 지정').check()
+  await page.getByLabel('시작 시간').fill('2300')
+  await page.getByLabel('종료 시간').fill('0900')
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  await expect.poll(() => [...remote.values()].find(row => row.collection === 'items' && row.value?.title === '서버에 저장할 야간 일정')).toMatchObject({
+    value: { date: '2026-08-18', end_date: '2026-08-19', start_time: '23:00', end_time: null, end_time_on_end_date: '09:00' },
+  })
+  await page.getByRole('dialog').getByRole('button', { name: '닫기' }).click()
 
   await page.getByRole('button', { name: '설정', exact: true }).click()
   await page.getByRole('button', { name: '로그아웃' }).click()

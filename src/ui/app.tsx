@@ -3,7 +3,7 @@ import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent, type Modifier,
 } from '@dnd-kit/core'
 import { CalendarRange, Check, ChevronLeft, ChevronRight, Plus, Settings2 } from 'lucide-react'
-import { dateKey, monthWeeks, moveEvent, moveMonth, occursOn, readableDate, sortEvents, sortTodos } from '../calendar'
+import { dateKey, eventTimesInOrder, monthWeeks, moveEvent, moveMonth, occursOn, readableDate, sortEvents, sortTodos } from '../calendar'
 import { defaultBacklogShortcutKey, isPlannerTodo, put, type Change, type DateKey, type Item } from '../data/model'
 import type { Repository, RepositoryState } from '../data/repository'
 import { calendarDateAt, CalendarView, tint, type CategoryAnchor } from './calendar-view'
@@ -281,7 +281,8 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     const date = point ? calendarDateAt(point.x, point.y) : event.over?.id
     const item = items.find(value => value.id === id)
     if (item?.date && unschedule) {
-      void apply([put('items', { ...item, date: null, end_date: undefined })])
+      const end_time = eventTimesInOrder(null, undefined, item.start_time, item.end_time) ? item.end_time : null
+      void apply([put('items', { ...item, date: null, end_date: undefined, end_time })])
         .then(() => setTodoOpen(true)).catch(() => undefined).finally(cancelMove)
     } else if (item && typeof date === 'string' && date !== 'cancel' && date !== 'unschedule') schedule(item, date)
     else cancelMove()

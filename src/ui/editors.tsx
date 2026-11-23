@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Trash2 } from 'lucide-react'
-import { parseClock, readableDate } from '../calendar'
+import { eventTimesInOrder, parseClock, readableDate } from '../calendar'
 import { entity, type Category, type DateKey, type Item } from '../data/model'
 import styles from './ui.module.css'
 
@@ -35,12 +35,16 @@ export function ItemEditor({ item, date, rangeEnd, rangeDraft, defaultCategory, 
       return
     }
     if (lastDay && day && lastDay < day) { setError('종료 날짜를 확인하세요.'); return }
-    if (endTime && (!startTime || endTime < startTime)) { setError('종료 시간은 시작 시간 이후로 지정하세요.'); return }
+    const endDate = day && lastDay > day ? lastDay : undefined
+    if (!eventTimesInOrder(day || null, endDate, startTime, endTime)) {
+      setError(startTime ? '자정을 넘는 일정은 종료 날짜를 다음 날 이후로 지정하세요.' : '시작 시간을 입력하세요.')
+      return
+    }
     setSaving(true)
     try {
       await save({
         ...(item ?? entity()), title: title.trim(), date: day || null,
-        end_date: day && lastDay > day ? lastDay : undefined,
+        end_date: endDate,
         start_time: startTime ?? null, end_time: endTime ?? null,
         category_id: category, completed: false, sort_order: item?.sort_order ?? Date.now(),
       })

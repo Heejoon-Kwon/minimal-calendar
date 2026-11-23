@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { decodeCalendarMutation, encodeCalendarMutation } from './calendar-wire'
 import { collectionNames } from './model'
 import type { Mutation, Remote } from './repository'
 
@@ -44,10 +45,12 @@ export function supabaseRemote(client: SupabaseClient, userId: string): Remote {
     async read() {
       const { data, error } = await calendarRequest(signal => client.rpc('calendar_snapshot').abortSignal(signal))
       if (error) throw error
-      return (data ?? []) as Mutation[]
+      return ((data ?? []) as Mutation[]).map(decodeCalendarMutation)
     },
     async apply(changes) {
-      const { error } = await calendarRequest(signal => client.rpc('apply_calendar_changes', { changes }).abortSignal(signal))
+      const { error } = await calendarRequest(signal => client.rpc('apply_calendar_changes', {
+        changes: changes.map(encodeCalendarMutation),
+      }).abortSignal(signal))
       if (error) throw error
     },
     watch(listener) {

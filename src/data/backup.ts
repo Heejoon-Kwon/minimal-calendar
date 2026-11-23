@@ -1,4 +1,4 @@
-import { compareTimes, dateKey, fromKey } from '../calendar'
+import { dateKey, eventTimesInOrder, fromKey } from '../calendar'
 import { backlogShortcutKeys, calendarFontSizes, collectionNames, customStyles, todoFontSizes, type Change, type Records } from './model'
 import { recordsToChanges } from './repository'
 
@@ -44,7 +44,8 @@ export function decodeBackup(raw: string): Records {
       || (item.planner_todo !== undefined && (item.planner_todo !== true || item.end_date !== undefined
         || item.start_time !== null || item.end_time !== null))
       || (item.start_time !== null && !time(item.start_time))
-      || (item.end_time !== null && (!time(item.end_time) || !item.start_time || compareTimes(item.end_time, item.start_time) < 0)))) {
+      || (item.end_time !== null && !time(item.end_time))
+      || !eventTimesInOrder(item.date, item.end_date, item.start_time, item.end_time))) {
     throw new Error('백업의 날짜, 카테고리 또는 설정이 올바르지 않습니다.')
   }
   // Project known collections through a JSON whitelist before they can reach the transport.

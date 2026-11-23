@@ -39,6 +39,11 @@ export function compareTimes(a: string, b: string) {
   return normalize(a).localeCompare(normalize(b))
 }
 
+export function eventTimesInOrder(date: DateKey | null, endDate: DateKey | undefined, startTime?: string | null, endTime?: string | null) {
+  if (!endTime) return true
+  return Boolean(startTime && ((date && endDate && endDate > date) || compareTimes(endTime, startTime) >= 0))
+}
+
 export function sortEvents(items: Item[]): Item[] {
   return [...items].sort((a, b) => compareTimes(a.start_time ?? '', b.start_time ?? '')
     || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))

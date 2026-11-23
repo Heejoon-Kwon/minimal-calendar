@@ -136,8 +136,54 @@ test('날짜를 누르거나 같은 칸에서 놓으면 단일 일정, 다른 �
   await page.mouse.up()
   await expect(editor).toContainText(/8월 18일.*~.*8월 20일/)
   await title.fill('거꾸로 끈 기간')
-  await title.press('Enter')
-  await expect(page.locator('[data-range-event="true"]').filter({ hasText: '거꾸로 끈 기간' })).toHaveCount(1)
+  await editor.getByLabel('시간 지정').check()
+  await editor.getByLabel('시작 시간').fill('2300')
+  await editor.getByLabel('종료 시간').fill('0900')
+  await editor.getByRole('button', { name: '저장' }).click()
+  const bar = page.locator('[data-range-event="true"]').filter({ hasText: '거꾸로 끈 기간' })
+  await expect(bar).toHaveCount(1)
+  await page.reload()
+  await bar.click()
+  await expect(page.getByLabel('시작 시간')).toHaveValue('23:00')
+  await expect(page.getByLabel('종료 시간')).toHaveValue('09:00')
+})
+
+test('카테고리 메뉴의 휠 스크롤과 방향키로 숨은 항목까지 선택한다', async ({ page, browserName, hasTouch }) => {
+  await openApp(page)
+  const records = emptyRecords()
+  const template = records.categories[0]
+  for (let index = 1; index <= 12; index++) {
+    records.categories.push({ ...template, id: `extra-${index}`, name: `추가 ${index}`, created_at: `2026-08-${String(index).padStart(2, '0')}T00:00:00.000Z` })
+  }
+  records.items.push(item('분류할 일정', '2026-08-18'))
+  await restore(page, records)
+  const event = cell(page, '2026-08-18').getByRole('button', { name: '분류할 일정' })
+  await event.click({ button: 'right' })
+  const menu = page.getByRole('dialog', { name: '카테고리 변경' })
+  const first = menu.getByRole('button', { name: '기본', exact: true })
+  const categories = first.locator('..')
+  const remove = menu.getByRole('button', { name: '삭제', exact: true })
+  await expect(first).toBeFocused()
+  if (browserName !== 'webkit' || !hasTouch) {
+    await first.hover()
+    await page.mouse.wheel(0, 700)
+    await expect.poll(() => categories.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+  }
+  await expect(remove).toBeInViewport()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('button', { name: '공부', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(first).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(remove).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  const last = menu.getByRole('button', { name: '추가 12', exact: true })
+  await expect(last).toBeFocused()
+  await expect(last).toBeInViewport()
+  await expect.poll(() => categories.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+  await page.keyboard.press('Enter')
+  await event.click()
+  await expect(page.getByLabel('카테고리')).toHaveValue('extra-12')
 })
 
 test('글자 크기와 카테고리 순서가 다시 열어도 적용된다', async ({ page }) => {
@@ -347,4 +393,36 @@ test('2주 계획에서 참고 일정과 독립적인 할 일을 추가하고 �
   await draft.click({ button: 'right' })
   await menu.getByRole('button', { name: '삭제' }).click()
   await expect(draft).toHaveCount(0)
+})
+
+test('2주 계획의 각 주가 가장 높은 일정 영역에 맞춰 할 일 시작선을 정렬한다', async ({ page }, info) => {
+  await openApp(page)
+  const records = emptyRecords()
+  records.items.push(
+    item('화요일 일정', '2026-08-18'),
+    item('제목이 길어서 좁은 레이아웃에서는 두 줄 이상으로 보이는 화요일 일정', '2026-08-18', 1),
+    item('같은 날의 세 번째 일정', '2026-08-18', 2),
+    item('수요일 일정', '2026-08-19'),
+    item('다음 주 일정', '2026-08-24'),
+  )
+  await restore(page, records)
+  await page.getByRole('button', { name: '2주', exact: true }).click()
+  const planner = page.getByRole('region', { name: '2주 계획', exact: true })
+  async function expectAligned() {
+    await expect.poll(() => planner.locator('[data-planner-date]').evaluateAll(days => {
+      const measurements = days.map(day => {
+        const agenda = day.querySelector('[aria-label="캘린더 일정"]')!.getBoundingClientRect()
+        const tallestContent = day.querySelector('[data-planner-agenda-content]')!.getBoundingClientRect().height
+        return { start: agenda.bottom - day.getBoundingClientRect().top, height: agenda.height, tallestContent }
+      })
+      return [measurements.slice(0, 7), measurements.slice(7)].map(week => ({
+        aligned: new Set(week.map(day => day.start)).size === 1 && week.length === 7,
+        fitsLargest: week.every(day => day.height === Math.max(...week.map(entry => entry.tallestContent))),
+      }))
+    })).toEqual([{ aligned: true, fitsLargest: true }, { aligned: true, fitsLargest: true }])
+  }
+  await expectAligned()
+  await page.screenshot({ path: info.outputPath('planner-aligned.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 900, height: 800 })
+  await expectAligned()
 })

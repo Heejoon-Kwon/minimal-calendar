@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
 import { afterAll, beforeAll, expect, it } from 'vitest'
+import { decodeCalendarMutation, encodeCalendarMutation } from '../src/data/calendar-wire'
 import { initialRecords } from '../src/data/model'
-import { recordsToChanges } from '../src/data/repository'
+import { recordsToChanges, type Mutation } from '../src/data/repository'
 
 const db = new PGlite()
 const alice = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
@@ -46,6 +47,12 @@ it('마이그레이션, 인증, 사용자별 RLS, RPC 멱등성과 기한 제약
     value: { id: 'invalid', created_at: stamp, updated_at: stamp, title: '시간 확인', date: null, category_id: 'category-1',
       start_time: '14:00', end_time: '12:00', completed: false, sort_order: 0 } }]))
     .rejects.toThrow(/check constraint/)
+  const overnight: Mutation = { collection: 'items', id: 'overnight', stamp, operation: crypto.randomUUID(),
+    value: { id: 'overnight', created_at: stamp, updated_at: stamp, title: '야간 일정', category_id: 'category-1',
+      date: '2026-09-01', end_date: '2026-09-02', start_time: '23:00', end_time: '09:00', completed: false, sort_order: 0 } }
+  await send([encodeCalendarMutation(overnight)])
+  const { rows: [{ result }] } = await db.query<{ result: Mutation[] }>('select public.calendar_snapshot() result')
+  expect(result.filter(row => row.id === overnight.id).map(decodeCalendarMutation)).toEqual([overnight])
   await db.exec(`set request.jwt.claim.sub = '${bob}'`)
   expect((await db.query('select * from public.categories')).rows).toEqual([])
   expect((await db.query('select public.calendar_snapshot() result')).rows).toEqual([{ result: [] }])
