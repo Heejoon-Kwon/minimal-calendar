@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { demoRecords } from '../src/data/demo'
 import { cell, center, emptyRecords, item, openApp, restore, startMouseDrag } from './browser-fixtures'
 
 test('인접 월 일정의 빠른 추가와 카테고리 변경, Todo 편집·이동', async ({ page }) => {
@@ -425,4 +426,57 @@ test('2주 계획의 각 주가 가장 높은 일정 영역에 맞춰 할 일 �
   await page.screenshot({ path: info.outputPath('planner-aligned.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 900, height: 800 })
   await expectAligned()
+})
+
+test('보기 전환 단축키와 2주 계획의 긴 미정 목록', async ({ page }, info) => {
+  await openApp(page)
+  const records = demoRecords(new Date('2026-08-18T12:00:00'))
+  const backlog = ['여행 숙소 알아보기', '사진 폴더 정리하기', '읽을 책 후보 적기', '온라인 강의 비교하기', '운동 루틴 초안 만들기',
+    '자주 쓰는 문서 북마크하기', '다음 달 예산 검토하기', '작업 공간 정리하기', '포트폴리오 설명 수정하기', '회의 양식 만들기',
+    '좋았던 글 저장하기', '프로젝트 자료 모으기', '구독 서비스 점검하기', '이메일 템플릿 정리하기', '테스트 기기 업데이트하기',
+    '노트 백업하기', '주말 메뉴 생각하기', '읽다 만 아티클 보기', '재활용품 정리하기', '연락처 목록 업데이트하기']
+  records.items.push(...backlog.map((title, index) => ({ ...item(title, null, index), planner_todo: true as const })))
+  records.items.push(
+    { ...item('회의 자료 확인', '2026-08-17'), planner_todo: true, completed: true },
+    { ...item('다음 주 목표 초안', '2026-08-18'), planner_todo: true },
+    { ...item('프로젝트 피드백 반영', '2026-08-19'), planner_todo: true },
+    { ...item('장보기 목록 작성', '2026-08-22'), planner_todo: true },
+    { ...item('인터뷰 질문 정리', '2026-08-25'), planner_todo: true },
+  )
+  await restore(page, records)
+  const monthly = page.getByRole('button', { name: '월간', exact: true })
+  const fortnight = page.getByRole('button', { name: '2주', exact: true })
+  await page.keyboard.press('Control+Tab')
+  await expect(fortnight).toHaveAttribute('aria-pressed', 'true')
+  await expect(fortnight).toBeFocused()
+  await page.screenshot({ path: info.outputPath('planner-overview.png'), animations: 'disabled' })
+
+  await page.getByRole('button', { name: '미정 할 일 목록' }).click()
+  const drawer = page.getByRole('complementary', { name: '미정 할 일' })
+  const add = drawer.getByRole('button', { name: '미정 할 일 추가', exact: true })
+  await expect(drawer.getByRole('listitem')).toHaveCount(backlog.length)
+  await expect.poll(() => drawer.getByRole('list').evaluate(list => {
+    const viewport = list.parentElement!.getBoundingClientRect()
+    return Array.from(list.children).filter(row => {
+      const bounds = row.getBoundingClientRect()
+      return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom
+    }).length
+  })).toBeGreaterThanOrEqual(10)
+  await expect(add).toBeInViewport()
+  await page.screenshot({ path: info.outputPath('planner-backlog.png'), animations: 'disabled' })
+  await drawer.getByRole('button', { name: backlog.at(-1), exact: true }).scrollIntoViewIfNeeded()
+  await expect(add).toBeInViewport()
+  await add.click()
+  const draft = drawer.getByRole('textbox')
+  await draft.fill('작성 중')
+  await draft.press('Control+Shift+Space')
+  await expect(draft).toHaveValue('작성 중')
+  await draft.press('Escape')
+
+  await page.keyboard.press('Control+Shift+Space')
+  await expect(monthly).toHaveAttribute('aria-pressed', 'true')
+  await expect(monthly).toBeFocused()
+  await page.keyboard.press('Control+Tab')
+  await expect(fortnight).toHaveAttribute('aria-pressed', 'true')
+  await expect(drawer).toHaveCount(0)
 })
