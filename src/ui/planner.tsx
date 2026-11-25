@@ -255,7 +255,7 @@ export function Planner({ today, weekStart, events, tasks, category, categoryId,
       </div> : <TodoTrigger buttonRef={trigger} count={listFor(null).length} open={open} label="미정 할 일" shortcutKey={shortcutKey}
         toggle={() => setOpen(value => !value)} reveal={() => setOpen(true)} pull={setPull} />}
     </footer>
-    <TodoDrawer open={open && !dragging} side="bottom" pull={pull} label="미정 할 일" count={listFor(null).length}
+    <TodoDrawer tall open={open && !dragging} side="bottom" pull={pull} label="미정 할 일" count={listFor(null).length}
       close={() => { setOpen(false); trigger.current?.focus() }}>
       <div className={shared.todoBody}>{rows(null)}</div>
       <div className={styles.drawerEntry}>{entry(null)}</div>
