@@ -19,6 +19,8 @@ type Overlay =
   | { kind: 'date'; date: DateKey }
   | { kind: 'item'; date: DateKey | null; itemId?: string; back?: DateKey; rangeEnd?: DateKey; rangeDraft?: boolean }
   | { kind: 'settings' }
+type View = 'calendar' | 'planner'
+const viewShortcuts = 'Control+Tab Control+Shift+Space'
 
 class ItemMouseSensor extends MouseSensor {
   static activators: typeof MouseSensor.activators = MouseSensor.activators.map(activator => ({
@@ -71,7 +73,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [todoOpen, setTodoOpen] = useState(false)
   const [plannerOpen, setPlannerOpen] = useState(false)
   const [pull, setPull] = useState(0)
-  const [view, setView] = useState<'calendar' | 'planner'>('calendar')
+  const [view, setView] = useState<View>('calendar')
   const [scrollRequest, setScrollRequest] = useState(0)
   const [dragging, setDragging] = useState<string>()
   const [clickMoving, setClickMoving] = useState<string>()
@@ -79,6 +81,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
   const onRefresh = useRef<() => void>(() => undefined)
   const todoTriggerRef = useRef<HTMLButtonElement>(null)
+  const viewSwitchRef = useRef<HTMLDivElement>(null)
   const shortcutKey = state?.records.settings[0]?.backlog_shortcut_key ?? defaultBacklogShortcutKey
   const dragPoint = useRef<{ x: number; y: number }>(null)
   const releasePoint = useRef<{ x: number; y: number }>(null)
@@ -95,6 +98,12 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   )
 
   function cancelMove() { setDragging(undefined); setClickMoving(undefined) }
+
+  const changeView = useCallback((next: View) => {
+    if (next === 'calendar') setPlannerOpen(false)
+    else setTodoOpen(false)
+    setView(next)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -163,8 +172,8 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
-      if (view !== 'calendar') return
       if (event.key === 'Escape') {
+        if (view !== 'calendar') return
         if (anchor) setAnchor(undefined)
         else if (clickMoving) setClickMoving(undefined)
         else if (todoOpen && !overlay && !dragging) {
@@ -175,7 +184,19 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
       }
       const target = event.target
       if (event.defaultPrevented || event.repeat || event.isComposing || overlay || anchor || dragging || clickMoving
-        || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select')))) return
+        || (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [role="dialog"]')))) return
+      if (event.ctrlKey && !event.altKey && !event.metaKey && (
+        (!event.shiftKey && event.key === 'Tab') || (event.shiftKey && event.code === 'Space')
+      )) {
+        const next = view === 'calendar' ? 'planner' : 'calendar'
+        const button = viewSwitchRef.current?.querySelector<HTMLButtonElement>(`[data-view="${next}"]`)
+        if (!button) return
+        event.preventDefault()
+        changeView(next)
+        button.focus({ preventScroll: true })
+        return
+      }
+      if (view !== 'calendar') return
       if (isBacklogShortcut(event, shortcutKey)) {
         event.preventDefault()
         setTodoOpen(open => !open)
@@ -188,7 +209,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [anchor, clickMoving, dragging, overlay, shortcutKey, todoOpen, view])
+  }, [anchor, changeView, clickMoving, dragging, overlay, shortcutKey, todoOpen, view])
 
   useEffect(() => {
     function captureMove(event: MouseEvent | TouchEvent) {
@@ -363,9 +384,9 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
           </div>}
         </div>
         <div className={styles.topActions}>
-          <div className={styles.viewSwitch} role="group" aria-label="보기 선택">
-            <button aria-pressed={view === 'calendar'} disabled={Boolean(movingItem || draggedTask)} onClick={() => { setPlannerOpen(false); setView('calendar') }}>월간</button>
-            <button aria-pressed={view === 'planner'} disabled={Boolean(movingItem || draggedTask)} onClick={() => { setTodoOpen(false); setView('planner') }}>2주</button>
+          <div ref={viewSwitchRef} className={styles.viewSwitch} role="group" aria-label="보기 선택" title="보기 전환 (Ctrl+Tab / Ctrl+Shift+Space)">
+            <button data-view="calendar" aria-keyshortcuts={viewShortcuts} aria-pressed={view === 'calendar'} disabled={Boolean(movingItem || draggedTask)} onClick={() => changeView('calendar')}>월간</button>
+            <button data-view="planner" aria-keyshortcuts={viewShortcuts} aria-pressed={view === 'planner'} disabled={Boolean(movingItem || draggedTask)} onClick={() => changeView('planner')}>2주</button>
           </div>
           <button className={styles.status} onClick={() => onRefresh.current()} disabled={!logout} aria-label={syncLabel} title={syncLabel}
             data-state={!logout ? 'local' : !online || syncError || pending ? 'waiting' : 'ready'} data-pending={Boolean(pending)}>
