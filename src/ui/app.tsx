@@ -10,7 +10,7 @@ import { calendarDateAt, CalendarView, tint, type CategoryAnchor } from './calen
 import { Dialog } from './dialog'
 import { ItemEditor } from './editors'
 import { ItemMenu } from './item-menu'
-import { Planner, plannerPlacementChanges, plannerDateAt } from './planner'
+import { Planner, plannerPlacementChanges, plannerDateAt, plannerRowAt } from './planner'
 import { SettingsPanel } from './settings'
 import { DropCancel, DropUnscheduled, isBacklogShortcut, TodoPanel, TodoTrigger } from './todos'
 import styles from './ui.module.css'
@@ -76,6 +76,8 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const [view, setView] = useState<View>('calendar')
   const [scrollRequest, setScrollRequest] = useState(0)
   const [dragging, setDragging] = useState<string>()
+  const [reorderOnly, setReorderOnly] = useState(false)
+  const [dropRow, setDropRow] = useState<ReturnType<typeof plannerRowAt>>()
   const [clickMoving, setClickMoving] = useState<string>()
   const [landing, setLanding] = useState<{ itemId: string; date: DateKey; color: string }>()
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
@@ -97,7 +99,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     useSensor(CalendarTouchSensor, { activationConstraint: { delay: 420, tolerance: 10 } }),
   )
 
-  function cancelMove() { setDragging(undefined); setClickMoving(undefined) }
+  function cancelMove() { setDragging(undefined); setClickMoving(undefined); setReorderOnly(false); setDropRow(undefined) }
 
   const changeView = useCallback((next: View) => {
     if (next === 'calendar') setPlannerOpen(false)
@@ -262,7 +264,9 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
   const { records, pending } = state
   const { categories } = records
   const items = records.items.filter(item => !isPlannerTodo(item))
-  const plannerTasks = records.items.filter(isPlannerTodo)
+  const plannerItems = records.items.filter(isPlannerTodo)
+  const plannerTasks = plannerItems.filter(item => item.weekly_day === undefined)
+  const recurring = plannerItems.filter(item => item.weekly_day !== undefined)
   const settings = records.settings[0]
   const defaultCategory = categories.find(category => category.id === settings.default_category_id) ?? categories[0]
   const category = (id: string) => categories.find(value => value.id === id) ?? defaultCategory
@@ -289,6 +293,17 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     const unschedule = point ? !!document.elementFromPoint(point.x, point.y)?.closest('[data-unschedule]') : event.over?.id === 'unschedule'
     const task = plannerTasks.find(value => value.id === id)
     if (task) {
+      const row = point && plannerRowAt(point.x, point.y)
+      const target = row && plannerTasks.find(value => value.id === row.id)
+      if (row && target && target.date === task.date) {
+        if (target.id === task.id) { cancelMove(); return }
+        const siblings = sortTodos(plannerTasks.filter(value => value.date === task.date && value.id !== task.id))
+        const index = siblings.findIndex(value => value.id === target.id) + Number(row.after)
+        void apply(plannerPlacementChanges(siblings, task, task.date, siblings[index]?.id))
+          .catch(() => undefined).finally(cancelMove)
+        return
+      }
+      if (reorderOnly) { cancelMove(); return }
       const date = unschedule ? null : point ? plannerDateAt(point.x, point.y) : event.over?.data.current?.date
       if ((typeof date === 'string' || (date === null && task.date)) && date !== task.date) {
         void apply(plannerPlacementChanges(plannerTasks, task, date)).then(() => {
@@ -353,13 +368,24 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
     : syncError ? (pending ? `동기화 대기 · ${pending}건` : '동기화 대기 · 재시도')
     : pending ? '동기화 중' : '동기화 연결됨'
 
-  return <DndContext sensors={sensors} collisionDetection={pointerWithin}
+  return <DndContext sensors={sensors} collisionDetection={args => {
+    const hits = pointerWithin(args)
+    return reorderOnly ? hits.filter(hit => hit.id === 'planner-backlog' || hit.id === 'cancel') : hits
+  }}
     autoScroll={view === 'planner' && { canScroll: canScrollPlanner, threshold: { x: 0.01, y: 0.07 }, acceleration: 7, interval: 12 }}
     onDragStart={event => {
       dragPoint.current = null
       releasePoint.current = null
       setDragging(String(event.active.data.current?.itemId ?? event.active.id))
       setAnchor(undefined)
+      setReorderOnly(event.active.data.current?.reorderOnly === true)
+    }} onDragMove={event => {
+      const point = dragPoint.current
+      if (!draggedTask || !point) return
+      const row = plannerRowAt(point.x, point.y)
+      const target = row && plannerTasks.find(task => task.id === row.id)
+      const next = target && target.id !== event.active.data.current?.itemId && target.date === draggedTask.date ? row : undefined
+      setDropRow(previous => previous?.id === next?.id && previous?.after === next?.after ? previous : next)
     }} onDragEnd={drop} onDragCancel={cancelMove}
     accessibility={{ screenReaderInstructions: { draggable: '미정 항목을 길게 눌러 원하는 날짜로 끌어 놓으세요. 키보드에서는 Enter로 이동을 시작하세요.' } }}>
     <main className={styles.app} style={{ '--todo-font': `${settings.todo_font_size ?? 14}px` } as CSSProperties}>
@@ -424,7 +450,7 @@ export function App({ repository, logout }: { repository: Repository; logout?: (
         }} quickCategory={setAnchor} move={item => setClickMoving(item.id)} />
       </> : <Planner today={today} weekStart={settings.week_start} events={items} tasks={plannerTasks}
         category={category} categoryId={defaultCategory.id} apply={apply} scrollRequest={scrollRequest}
-        open={plannerOpen} setOpen={setPlannerOpen} draggedTask={draggedTask} cancelDrag={cancelMove} shortcutKey={shortcutKey} />}
+        open={plannerOpen} setOpen={setPlannerOpen} recurring={recurring} reorderOnly={reorderOnly} dropRow={dropRow} draggedTask={draggedTask} cancelDrag={cancelMove} shortcutKey={shortcutKey} />}
       {landing && <div className={styles.placementStatus} role="status" data-placement><Check size={14} /> {readableDate(landing.date)}에 배치했어요</div>}
       {actionError && <div className={styles.actionError} role="alert">{actionError}</div>}
       {anchor && <ItemMenu x={anchor.x} y={anchor.y} label="카테고리 변경" close={() => setAnchor(undefined)} remove={() => {

@@ -91,11 +91,11 @@ export function TodoTrigger({ buttonRef, count, open, toggle, reveal, pull, shor
   </div>
 }
 
-export function TodoDrawer({ open, side, pull, label, count, close, children, tall }: {
-  open: boolean; side: 'top' | 'bottom'; pull: number; label: string; count: number; tall?: boolean
+export function TodoDrawer({ open, side, pull, label, count, close, children, tall, id = 'todo-panel' }: {
+  open: boolean; side: 'top' | 'bottom'; pull: number; label: string; count: number; tall?: boolean; id?: string
   close: () => void; children: ReactNode
 }) {
-  return <aside id="todo-panel" className={styles.todoPanel} aria-label={label}
+  return <aside id={id} className={styles.todoPanel} aria-label={label}
     aria-hidden={!open} inert={!open} data-open={open} data-side={side} data-pulling={pull > 0} data-tall={tall}
     style={pull > 0 ? { '--pull-offset': `${(1 - pull) * (side === 'top' ? -100 : 100)}%` } as CSSProperties : undefined}>
     <div className={styles.panelHeading}><h2><ListTodo size={17} /> {label} <span>{count}</span></h2>

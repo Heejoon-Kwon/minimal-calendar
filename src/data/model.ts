@@ -20,6 +20,7 @@ export interface Item extends Entity {
   date: DateKey | null
   end_date?: DateKey
   planner_todo?: true
+  weekly_day?: number
   start_time: string | null
   end_time: string | null
   category_id: string

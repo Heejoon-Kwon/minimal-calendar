@@ -91,3 +91,11 @@
 
 .dateTarget { border: 1px dashed var(--faint); border-radius: 4px; min-height: 28px; padding: 0 6px; font-weight: 700; }
 .dateTarget:hover { background: var(--hover); }
+
+.dockActions { display: flex; justify-content: center; gap: 6px; min-height: 0; }
+.weekday { flex: none; color: var(--muted); font-size: 12px; padding: 5px 3px; }
+.taskRow { position: relative; }
+.taskRow[data-insert]::after { position: absolute; inset-inline: 2px; height: 2px; background: var(--ink); content: ''; pointer-events: none; }
+.taskRow[data-insert='before']::after { top: -1px; }
+.taskRow[data-insert='after']::after { bottom: -1px; }
+.taskTools [data-planner-task] { cursor: grab; touch-action: none; user-select: none; -webkit-touch-callout: none; }

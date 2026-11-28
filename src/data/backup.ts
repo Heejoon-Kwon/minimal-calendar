@@ -43,6 +43,8 @@ export function decodeBackup(raw: string): Records {
       || (item.end_date !== undefined && (!date(item.end_date) || !item.date || item.end_date < item.date))
       || (item.planner_todo !== undefined && (item.planner_todo !== true || item.end_date !== undefined
         || item.start_time !== null || item.end_time !== null))
+      || (item.weekly_day !== undefined && (item.planner_todo !== true || item.date !== null
+        || !Number.isInteger(item.weekly_day) || item.weekly_day < 0 || item.weekly_day > 6))
       || (item.start_time !== null && !time(item.start_time))
       || (item.end_time !== null && !time(item.end_time))
       || !eventTimesInOrder(item.date, item.end_date, item.start_time, item.end_time))) {
@@ -56,8 +58,8 @@ export function decodeBackup(raw: string): Records {
       id, created_at, updated_at, theme, week_start, default_category_id,
       calendar_style, calendar_font_size, todo_font_size, backlog_shortcut_key, category_order: category_order?.filter(id => ids.has(id)),
     })),
-    items: items.map(({ id, created_at, updated_at, title, date, end_date, planner_todo, start_time, end_time, category_id, completed, sort_order }) =>
-      ({ id, created_at, updated_at, title, date, end_date, planner_todo, start_time, end_time, category_id, completed, sort_order })),
+    items: items.map(({ id, created_at, updated_at, title, date, end_date, planner_todo, weekly_day, start_time, end_time, category_id, completed, sort_order }) =>
+      ({ id, created_at, updated_at, title, date, end_date, planner_todo, weekly_day, start_time, end_time, category_id, completed, sort_order })),
   }
 }
 
