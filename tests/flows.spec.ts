@@ -480,3 +480,45 @@ test('보기 전환 단축키와 2주 계획의 긴 미정 목록', async ({ pag
   await expect(fortnight).toHaveAttribute('aria-pressed', 'true')
   await expect(drawer).toHaveCount(0)
 })
+
+test('주간 정기일정은 두 주에 반복되고 할 일은 드래그로 순서를 바꾼다', async ({ page }) => {
+  await openApp(page)
+  const records = emptyRecords()
+  for (const [i, title] of ['먼저', '나중'].entries()) {
+    records.items.push({ ...item(title, '2026-08-18', i), planner_todo: true },
+      { ...item('미정 ' + title, null, i), planner_todo: true })
+  }
+  await restore(page, records)
+  await page.getByRole('button', { name: '2주', exact: true }).click()
+  await page.getByRole('button', { name: '주간 정기일정', exact: true }).click()
+  const weekly = page.getByRole('complementary', { name: '주간 정기일정' })
+  await weekly.getByRole('button', { name: '정기일정 추가' }).click()
+  await weekly.getByLabel('반복 요일').selectOption('2')
+  await weekly.getByLabel('정기일정 제목').fill('주간 미팅')
+  await weekly.getByLabel('정기일정 제목').press('Enter')
+  await expect(weekly.getByText('주간 미팅')).toBeVisible()
+  await weekly.getByRole('button', { name: '주간 정기일정 닫기' }).click()
+  const day = page.locator('[data-planner-date="2026-08-18"]')
+  await expect(day.getByText('주간 미팅')).toBeVisible()
+  await expect(page.locator('[data-planner-date="2026-08-25"]').getByText('주간 미팅')).toHaveCount(1)
+
+  async function reorder(source: ReturnType<typeof page.getByRole>, target: ReturnType<typeof page.getByRole>) {
+    const bounds = (await target.boundingBox())!
+    await startMouseDrag(page, source)
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 4, { steps: 6 })
+    await expect(target).toHaveAttribute('data-insert', 'before')
+    await page.mouse.up()
+  }
+  await reorder(day.getByRole('button', { name: '나중', exact: true }), day.getByRole('listitem').first())
+  await expect(day.getByRole('listitem').first()).toContainText('나중')
+
+  await page.getByRole('button', { name: '미정 할 일 목록' }).click()
+  const backlog = page.getByRole('complementary', { name: '미정 할 일' })
+  await expect(backlog.getByText('주간 미팅')).toHaveCount(0)
+  await reorder(backlog.getByRole('button', { name: '미정 나중 순서 이동' }), backlog.getByRole('listitem').first())
+  await expect(backlog.getByRole('listitem').first()).toContainText('미정 나중')
+  await page.reload()
+  await page.getByRole('button', { name: '2주', exact: true }).click()
+  await expect(day.getByRole('listitem').first()).toContainText('나중')
+  await expect(day.getByText('주간 미팅')).toBeVisible()
+})

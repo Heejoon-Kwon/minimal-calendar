@@ -95,7 +95,8 @@ test('달력 좌우 스와이프로 연도 경계를 넘나들고 일정 탭과 
 test('미정 할 일을 손가락으로 옮기고 놓기 전에는 날짜를 변경하지 않는다', async ({ page, context }) => {
   await openApp(page)
   const records = emptyRecords()
-  records.items.push({ ...item('터치로 배정', null), planner_todo: true })
+  records.items.push({ ...item('터치로 배정', null), planner_todo: true },
+    { ...item('자리 기준', '2026-08-17'), planner_todo: true })
   await restore(page, records)
   await page.getByRole('button', { name: '2주', exact: true }).tap()
   await page.getByRole('button', { name: '미정 할 일 목록' }).tap()
@@ -131,4 +132,13 @@ test('미정 할 일을 손가락으로 옮기고 놓기 전에는 날짜를 변
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await expect(first.getByRole('button', { name: '터치로 배정', exact: true })).toBeVisible()
   await expect(assigned).toHaveCount(0)
+  const firstRow = first.getByRole('listitem').first()
+  const rowBounds = (await firstRow.boundingBox())!
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [await center(first.getByRole('button', { name: '터치로 배정', exact: true }))] })
+  await expect(page.locator('[data-drag-preview]')).toHaveText('터치로 배정')
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: rowBounds.x + rowBounds.width / 2, y: rowBounds.y + 4 }] })
+  await expect(firstRow).toHaveAttribute('data-insert', 'before')
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(firstRow).toContainText('터치로 배정')
+
 })

@@ -116,12 +116,14 @@ it('이전 백업의 기한을 제외하고 새 화면 설정과 카테고리 �
   expect(restored.records.categories.slice(0, 2).map(({ id }) => id)).toEqual(category_order)
 })
 
-it('기간 일정과 계획의 할 일을 백업에서 별도 종류로 유지한다', () => {
+it('기간 일정과 계획 할 일, 주간 정기일정을 백업에서 별도로 유지한다', () => {
   const records = initialRecords()
   records.items.push({ ...item(), date: '2026-08-18', end_date: '2026-08-20', start_time: '23:00', end_time: '09:00' })
   records.items.push({ ...item(), date: '2026-08-19', planner_todo: true })
+  records.items.push({ ...item(), date: null, planner_todo: true, weekly_day: 0 })
   const restored = decodeBackup(encodeBackup(records)).items
   expect(restored[0]).toMatchObject({ date: '2026-08-18', end_date: '2026-08-20', start_time: '23:00', end_time: '09:00' })
   expect(restored[0].planner_todo).toBeUndefined()
   expect(restored[1]).toMatchObject({ date: '2026-08-19', planner_todo: true })
+  expect(restored[2]).toMatchObject({ date: null, planner_todo: true, weekly_day: 0 })
 })
