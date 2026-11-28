@@ -503,8 +503,8 @@ test('주간 정기일정은 두 주에 반복되고 할 일은 드래그로 순
   await expect(page.locator('[data-planner-date="2026-08-25"]').getByText('주간 미팅')).toHaveCount(1)
 
   async function reorder(source: ReturnType<typeof page.getByRole>, target: ReturnType<typeof page.getByRole>) {
-    const bounds = (await target.boundingBox())!
     await startMouseDrag(page, source)
+    const bounds = (await target.boundingBox())!
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 4, { steps: 6 })
     await expect(target).toHaveAttribute('data-insert', 'before')
     await page.mouse.up()
